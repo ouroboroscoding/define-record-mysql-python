@@ -21,7 +21,7 @@ from time import sleep, time
 
 # Pip imports
 import arrow
-from record import DuplicateException
+from record.exceptions import RecordDuplicate
 import pymysql
 
 # List of available hosts
@@ -400,7 +400,7 @@ def execute(sql: str, host: str = '_', errcnt: int = 0) -> int:
 		except pymysql.err.IntegrityError as e:
 
 			# Raise a Duplicate Record Exception
-			raise DuplicateException(e.args[0], e.args[1])
+			raise RecordDuplicate(e.args[0], e.args[1])
 
 		# Else there's an operational problem so close the connection and
 		#	restart
@@ -482,7 +482,7 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 		except pymysql.err.IntegrityError as e:
 
 			# Raise a Duplicate Record Exception
-			raise DuplicateException(e.args[0], e.args[1])
+			raise RecordDuplicate(e.args[0], e.args[1])
 
 		# Else there's an operational problem so close the connection and
 		#	restart

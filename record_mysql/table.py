@@ -3,26 +3,30 @@
 
 Handles a single SQL table and all that's required to interact with it
 """
+from __future__ import annotations
 
 __author__		= "Chris Nasr"
 __copyright__	= "Ouroboros Coding Inc."
 __email__		= "chris@ouroboroscoding.com"
 __created__		= "2023-04-01"
 
-# Limit imports
+# Limit exports
 __all__ = ['escape', 'Table']
 
 # Python imports
+from typing import Literal as LT
 import re
 
 # Pip imports
 from define import Node, NOT_SET
+from jobject import JObject
 import jsonb
-from record import Limit
+from record.types import Limit
+from tools import merge
 
 # Local imports
-from . import Literal, server
-from .storage import Storage
+from . import server
+from .transaction import Transaction
 
 _node_to_sql = {
 	'any': False,
@@ -48,6 +52,10 @@ _node_to_sql = {
 
 Used as default values for define Node types to SQL data types
 """
+
+BOOL_CONVERT = 0
+JSON_CONVERT = 1
+"""Constants"""
 
 DIGITS = re.compile(r'^\d+$')
 """Digits
@@ -222,17 +230,102 @@ def escape(node: Node, value: any, host = '_'):
 				'record_mysql.table can not process define %s nodes' % sClass
 			)
 
-class Table():
+class Func(object):
+	"""Func
+
+	Used as a field that won't be escaped or parsed
+	"""
+
+	def __init__(self, name: str, field: str):
+		if not isinstance(name, str):
+			raise ValueError('`name` in Func must be a string')
+		if not isinstance(field, str):
+			raise ValueError('`field` in Func must be a string')
+		self._text = '%s(%s)' % (name, field)
+	def __str__(self):
+		return self._text
+	def get(self):
+		return self._text
+
+class Literal(object):
+	"""Literal
+
+	Used as a value that won't be escaped or parsed
+	"""
+
+	def __init__(self, text: str):
+		if not isinstance(text, str):
+			raise ValueError('`text` in Literal must be a string')
+		self._text = text
+	def __str__(self):
+		return self._text
+	def get(self):
+		return self._text
+
+class Table(object):
 	"""Table
 
 	Represents a single SQL table and interacts with raw data in the form of
 	python dictionaries
 	"""
 
-	def __init__(self, name: str, details: dict):
+	def __init__(self, struct: dict, columns: dict):
 		"""Constructor
 
+		Creates a new instance
+
+		Arguments:
+			struct (dict): Configuration details for building and accessing the
+							table
+			columns (dict): The definitions for each column of the table
+
+		Returns:
+			Table
 		"""
+
+		# Generate the structure
+		self._struct: dict = merge({
+			'auto_key': False,
+			'db': 'db',
+			'host': '_',
+			'indexes': [],
+			'key': False,
+			'revisions': False,
+			'name': None
+		}, struct)
+
+		# If the table name is missing
+		if not isinstance(self._struct.name, str):
+			raise KeyError('record_mysql.table.struct.name must be a str')
+
+		# Store the columns
+		self._columns: dict = columns
+
+		# Keep track of fields that need to be converted
+		self._convert: list[list[str]] = []
+
+		# Step through each column
+		for f in self._columns:
+
+			# If it's a node
+			if self._columns[f].class_name() == 'Node':
+
+				# If it's a bool
+				if self._columns[f].type() == 'bool':
+
+					# Add it to the bool list
+					self._convert.append([f, BOOL_CONVERT])
+
+			# Else, it's complex
+			else:
+
+				# If it's not marked as JSON
+				dMySQL = self._columns[f].special('mysql', {})
+				if 'json' not in dMySQL or not dMySQL['json']:
+					raise ValueError('record_mysql.table.%s must be flagged as JSON')
+
+				# Add it to the json list
+				self._convert.append([f, JSON_CONVERT])
 
 	def create(self) -> bool:
 		"""Create
@@ -250,7 +343,7 @@ class Table():
 		if 'create' not in self._struct:
 
 			# Get all the field names
-			self._struct.create = self.parent.keys()
+			self._struct.create = self._columns.keys()
 
 			# Order them alphabetically
 			self._struct.create.sort()
@@ -260,7 +353,7 @@ class Table():
 			self._struct.create.remove(self._struct.key)
 
 		# Get all child node keys
-		lNodeKeys = self._parent.keys()
+		lNodeKeys = self.keys()
 		lMissing = [
 			s for s in lNodeKeys \
 			if s not in self._struct.create and \
@@ -270,10 +363,11 @@ class Table():
 		# If any are missing
 		if lMissing:
 			raise ValueError(
-				'record_mysql.table.create missing fields `%s` for `%s`.`%s`' % (
+				'record_mysql.table._struct.create missing fields `%s` ' \
+				'for `%s`.`%s`' % (
 					'`, `'.join(lMissing),
 					self._struct.db,
-					self._struct.table
+					self._struct.name
 				)
 			)
 
@@ -282,20 +376,32 @@ class Table():
 		for f in self._struct.create:
 
 			# Get the sql special data
-			dSQL = self._parent[f].special('mysql', default = {})
+			try:
+				dMySQL = self._columns[f].special('mysql', {})
+			except KeyError:
+				raise ValueError(
+					'record_myself.table._struct.create contains an ' \
+					'invalid field `%s` for `%s`.`%s`' % (
+						f, self._struct.db, self._struct.name
+					)
+				)
 
-			# If it's a string
-			if isinstance(dSQL, str):
-				dSQL = { 'type': dSQL }
+			# If it's a string, store the value under 'type' in a new dict
+			if isinstance(dMySQL, str):
+				dMySQL = { 'type': dMySQL }
+
+			# If the JSON flag is set, change the type to 'text'
+			if 'json' in dMySQL in dMySQL['json']:
+				dMySQL['type'] = 'text'
 
 			# Add the line
 			lFields.append('`%s` %s %s' % (
 				f,
 				('type' in dSQL and dSQL['type'] or \
-					_node_to_type(self._parent[f], self._struct.host)
+					_node_to_type(self._columns[f], self._struct.host)
 				),
 				('opts' in dSQL and dSQL['opts'] or \
-					(self._parent[f].optional() and 'null' or 'not null')
+					(self._columns[f].optional() and 'null' or 'not null')
 				)
 			))
 
@@ -304,9 +410,9 @@ class Table():
 
 			# Push the primary key to the front
 			#	Get the sql special data
-			dSQL = self._parent[self._struct.key].special('mysql', default = {})
+			dSQL = self._columns[self._struct.key].special('mysql', {})
 
-			# If it's a string
+			# If it's a string, store the value under 'type' in a new dict
 			if isinstance(dSQL, str):
 				dSQL = { 'type': dSQL }
 
@@ -314,7 +420,7 @@ class Table():
 			sIDType = 'type' in dSQL and \
 						dSQL['type'] or \
 						_node_to_type(
-							self._parent[self._struct.key],
+							self.get(self._struct.key),
 							self._struct.host
 						)
 			sIDOpts = 'opts' in dSQL and dSQL['opts'] or 'not null'
@@ -339,7 +445,7 @@ class Table():
 			# Make sure it's a list
 			if not isinstance(self._struct.indexes, list):
 				raise ValueError(
-					'record_mysql.table.create.indexes must be a list'
+					'record_mysql.table.struct.indexes must be a list'
 				)
 
 			# Init the list of indexes
@@ -363,7 +469,7 @@ class Table():
 					# If the dictionary has no name
 					if 'name' not in mi or not isinstance(mi.name, str):
 						raise ValueError(
-							'record_mysql.table.create.indexes[].name must ' \
+							'record_mysql.table.struct.indexes[].name must ' \
 							'be a string'
 						)
 
@@ -373,7 +479,7 @@ class Table():
 						# If it's not a list
 						if not isinstance(mi.fields, list):
 							raise ValueError(
-								'record_mysql.table.create.indexes[].fields ' \
+								'record_mysql.table.struct.indexes[].fields ' \
 								'must be a list'
 							)
 
@@ -393,7 +499,7 @@ class Table():
 								# If we are missing a name
 								if 'name' not in mf:
 									raise ValueError(
-										'record_mysql.table.create.indexes[].' \
+										'record_mysql.table.struct.indexes[].' \
 										'fields[].name is required'
 									)
 
@@ -403,9 +509,9 @@ class Table():
 									# If the order is invalid
 									if mf.order.upper() not in ['ASC', 'DESC']:
 										raise ValueError(
-											'record_mysql.table.create.indexes' \
-											'[].fields[].order must be one of ' \
-											'\'ASC\' | \'DESC\''
+											'record_mysql.table._struct.' \
+											'indexes[].fields[].order must ' \
+											'be one of \'ASC\' | \'DESC\''
 										)
 
 									# Set the order
@@ -421,8 +527,9 @@ class Table():
 									# If the size is invalid
 									if not isinstance(mf.size, int):
 										raise ValueError(
-											'record_mysql.table.create.indexes' \
-											'[].fields[].size must be an int'
+											'record_mysql.table._struct.' \
+											'indexes[].fields[].size must be ' \
+											'an int'
 										)
 
 									# Set the size
@@ -454,7 +561,7 @@ class Table():
 							'UNIQUE', 'FULLTEXT', 'SPATIAL'
 						]:
 							raise ValueError(
-								'record_mysql.table.create.indexes[].type ' \
+								'record_mysql.table.struct.indexes[].type ' \
 								'must be one of \'UNIQUE\' | \'FULLTEXT\' | ' \
 								'\'SPATIAL\''
 							)
@@ -474,7 +581,7 @@ class Table():
 				# Else, the index is invalid
 				else:
 					raise ValueError(
-						'record_mysql.table.create.indexes[] must be a str or ' \
+						'record_mysql.table.struct.indexes[] must be a str or ' \
 						'dict'
 					)
 
@@ -482,7 +589,7 @@ class Table():
 		sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
 				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
 					self._struct.db,
-					self._struct.table,
+					self._struct.name,
 					', '.join(lFields),
 					', '.join(lIndexes),
 					'engine' in self._struct and \
@@ -510,7 +617,7 @@ class Table():
 					'INDEX `%s` (`%s`)) ' \
 					'ENGINE=%s CHARSET=%s COLLATE=%s' % (
 				self._struct.db,
-				self._struct.table,
+				self._struct.name,
 				self._struct.key,
 				sIDType,
 				sIDOpts,
@@ -529,17 +636,13 @@ class Table():
 		# Return OK
 		return True
 
-	def delete(self, where: dict = NOT_SET) -> int:
-		"""Delete
+	def _delete(self, where: dict = NOT_SET) -> str:
+		"""_delete
 
-		Deletes all or some records
-
-		Arguments:
-			where (dict): Optional, field/value pairs to decide what records get
-							deleted
+		Generates the actual DELETE SQL
 
 		Returns:
-			uint: number of records deleted
+			str
 		"""
 
 		# Init the where fields
@@ -555,7 +658,7 @@ class Table():
 			for f,v in where.items():
 
 				# If the field doesn't exist
-				if f not in self._parent:
+				if f not in self._columns:
 					raise ValueError(
 						'record_mysql.table.delete.where `%s` not a valid ' \
 						'node' % f
@@ -569,16 +672,32 @@ class Table():
 			# Set the WHERE statment
 			sWhere = 'WHERE %s' % ' AND '.join(lWhere)
 
-		# Generate the SQL to update the field
-		sSQL = 'UPDATE `%s`.`%s` ' \
+		# Generate and return the SQL to update the field
+		return 'DELETE FROM `%s`.`%s` ' \
 				'%s' % (
 			self._struct.db,
-			self._struct.table,
+			self._struct.name,
 			sWhere or ''
 		)
 
-		# Delete all the records and return the number of rows changed
-		return server.execute(sSQL, self._struct.host)
+	def delete(self, where: dict = NOT_SET) -> int:
+		"""Delete
+
+		Deletes all or some records
+
+		Arguments:
+			where (dict): Optional, field/value pairs to decide what records get
+							deleted
+
+		Returns:
+			uint: number of records deleted
+		"""
+
+		# Delete the records and return the number of rows changed
+		return server.execute(
+			self._delete(where),
+			self._struct.host
+		)
 
 	def drop(self) -> bool:
 		"""Drop
@@ -595,7 +714,7 @@ class Table():
 		# Generate the DROP statement
 		sSQL = 'drop table `%s`.`%s`' % (
 			self._struct.db,
-			self._struct.table,
+			self._struct.name,
 		)
 
 		# Delete the table
@@ -607,7 +726,7 @@ class Table():
 			# Generate the DROP statement
 			sSQL = 'drop table `%s`.`%s_revisions`' % (
 				self._struct.db,
-				self._struct.table,
+				self._struct.name,
 			)
 
 			# Delete the table
@@ -616,19 +735,16 @@ class Table():
 		# Return OK
 		return True
 
-	def insert(self, values: dict, conflict: str = 'error') -> any:
-		"""Insert
+	def _insert(self,
+		values: dict,
+		conflict: str = 'error'
+	) -> str:
+		"""_insert
 
-		Inserts a new record into the table
-
-		Arguments:
-			values (dict): The dictionary of fields to values to be inserted
-			conflict (str | list): Must be one of 'error', 'ignore', 'replace',
-				or a list of fields to update
+		Generates the actual INSERT SQL
 
 		Returns:
-			The unique key for the newly inserted record or True for success,
-			and None for failure
+			str
 		"""
 
 		# If we didn't get a dictionary
@@ -643,7 +759,7 @@ class Table():
 		# Create the string of all fields and values but the primary if it's
 		#	auto incremented
 		lTemp = [[], []]
-		for f in self.keys():
+		for f in self._columns.keys():
 
 			# If it's the key key with auto_key on and the value isn't
 			#	passed
@@ -662,7 +778,7 @@ class Table():
 			elif f in values:
 				lTemp[0].append('`%s`' % f)
 				if values[f] != None:
-					lTemp[1].append(self.escape(
+					lTemp[1].append(escape(
 						f,
 						values[f],
 						self._struct.host
@@ -695,16 +811,37 @@ class Table():
 		del lTemp
 
 		# Generate the INSERT statement
-		sSQL = 'INSERT %sINTO `%s`.`%s` (%s)\n' \
+		return 'INSERT %sINTO `%s`.`%s` (%s)\n' \
 				' VALUES (%s)\n' \
 				'%s' % (
 					(conflict == 'ignore' and 'IGNORE ' or ''),
 					self._struct.db,
-					self._struct.table,
+					self._struct.name,
 					sFields,
 					sValues,
 					sUpdate
 				)
+
+	def insert(self,
+		values: dict,
+		conflict: str = 'error'
+	) -> str | LT[True] | None:
+		"""Insert
+
+		Inserts a new record into the table
+
+		Arguments:
+			values (dict): The dictionary of fields to values to be inserted
+			conflict (str | list): Must be one of 'error', 'ignore', 'replace',
+				or a list of fields to update
+
+		Returns:
+			Returns True or the unique key for the newly inserted record, and
+			None for failure
+		"""
+
+		# Generate the SQL
+		sSQL = self._insert(values, conflict)
 
 		# If the primary key is auto generated
 		if self._struct.auto_key:
@@ -758,9 +895,6 @@ class Table():
 			str
 		"""
 
-		# Get the field node
-		oNode = self._parent[field]
-
 		# If the value is a list
 		if isinstance(value, (list, tuple)):
 
@@ -768,8 +902,14 @@ class Table():
 			lValues = []
 			for i in value:
 				# If it's None
-				if i is None: lValues.append('NULL')
-				else: lValues.append(server.escape(oNode, i, self._struct.host))
+				if i is None:
+					lValues.append('NULL')
+				else:
+					lValues.append(escape(
+						self._columns[field],
+						i,
+						self._struct.host
+					))
 			sRet = 'IN (%s)' % ','.join(lValues)
 
 		# Else if the value is a dictionary
@@ -778,13 +918,13 @@ class Table():
 			# If it has a start and end
 			if 'between' in value:
 				sRet = 'BETWEEN %s AND %s' % (
-							server.escape(
-								oNode,
+							escape(
+								self._columns[field],
 								value['between'][0],
 								self._struct.host
 							),
-							server.escape(
-								oNode,
+							escape(
+								self._columns[field],
 								value['between'][1],
 								self._struct.host
 							)
@@ -792,32 +932,32 @@ class Table():
 
 			# Else if we have a less than
 			elif 'lt' in value:
-				sRet = '< %s' % server.escape(
-					oNode,
+				sRet = '< %s' % escape(
+					self._columns[field],
 					value['lt'],
 					self._struct.host
 				)
 
 			# Else if we have a greater than
 			elif 'gt' in value:
-				sRet = '> %s' % server.escape(
-					oNode,
+				sRet = '> %s' % escape(
+					self._columns[field],
 					value['gt'],
 					self._struct.host
 				)
 
 			# Else if we have a less than equal
 			elif 'lte' in value:
-				sRet = '<= %s' % server.escape(
-					oNode,
+				sRet = '<= %s' % escape(
+					self._columns[field],
 					value['lte'],
 					self._struct.host
 				)
 
 			# Else if we have a greater than equal
 			elif 'gte' in value:
-				sRet = '>= %s' % server.escape(
-					oNode,
+				sRet = '>= %s' % escape(
+					self._columns[field],
 					value['gte'],
 					self._struct.host
 				)
@@ -838,8 +978,8 @@ class Table():
 
 						# Else, escape the value
 						else:
-							lValues.append(server.escape(
-								oNode,
+							lValues.append(escape(
+								self._columns[field],
 								i,
 								self._struct.host
 							))
@@ -850,15 +990,15 @@ class Table():
 					if value['neq'] is None:
 						sRet = 'IS NOT NULL'
 					else:
-						sRet = '!= %s' % server.escape(
-							oNode,
+						sRet = '!= %s' % escape(
+							self._columns[field],
 							value['neq'],
 							self._struct.host
 						)
 
 			elif 'like' in value:
-				sRet = 'LIKE %s' % server.escape(
-					oNode,
+				sRet = 'LIKE %s' % escape(
+					self._columns[field],
 					value['like'],
 					self._struct.host
 				)
@@ -877,8 +1017,8 @@ class Table():
 			if value is None:
 				sRet = 'IS NULL'
 			else:
-				sRet = '= %s' % server.escape(
-					oNode,
+				sRet = '= %s' % escape(
+					self._columns[field],
 					value,
 					self._struct.host
 				)
@@ -918,10 +1058,10 @@ class Table():
 		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 					self._struct.db,
-					self._struct.table,
+					self._struct.name,
 					self._struct.key,
-					self.escape(
-						self._parent[self._struct.key],
+					escape(
+						self._columns[self._struct.key],
 						key,
 						self._struct.host
 					),
@@ -934,28 +1074,20 @@ class Table():
 		# Create the revisions record and return the records inserted
 		server.execute(sSQL, self._struct.host)
 
-	def select(self,
+	def _select(self,
 		distinct: bool = NOT_SET,
-		fields: list = NOT_SET,
+		fields: list[str] = NOT_SET,
 		where: dict = NOT_SET,
-		groupby: str | list = NOT_SET,
-		orderby: str | list = NOT_SET,
+		groupby: str | list[str] = NOT_SET,
+		orderby: str | list[str] = NOT_SET,
 		limit: Limit = NOT_SET
-	) -> list | dict | any:
-		"""Select
+	) -> str:
+		"""_select
 
-		Runs a select query and returns the results
-
-		Arguments:
-			distinct (bool): Optional, True to only return distinct records
-			fields (list): Optional, the list of fields to return from the table
-			where (dict): Optional, field/value pairs to decide what records to
-							get
-			orderby (str | list): Optional, a field or fields to order by
-			limit (records.Limit): Optional, the limit and starting point
+		Generates the actual SELECT SQL
 
 		Returns:
-			list
+			str
 		"""
 
 		# Init the statements list with the SELECT
@@ -964,9 +1096,14 @@ class Table():
 			'FROM `%s`.`%s`\n' \
 			'%s' % (
 				distinct and 'DISTINCT ' or '',
-				fields is NOT_SET and '*' or ('`%s`' % '`,`'.join(fields)),
+				fields is NOT_SET and '*' or ','.join([
+					(isinstance(f, Func) and \
+						str(f) or \
+						('`%s`' % f)
+					) for f in fields
+				]),
 				self._struct.db,
-				self._struct.table
+				self._struct.name
 			)
 		]
 
@@ -980,7 +1117,7 @@ class Table():
 			for f,v in where.items():
 
 				# If the field doesn't exist
-				if f not in self._parent:
+				if f not in self._columns:
 					raise ValueError(
 						'record_mysql.table.update.where `%s` not a valid ' \
 						'node' % str(f)
@@ -1064,30 +1201,84 @@ class Table():
 				else:
 					lStatements.append('LIMIT %d' % limit.max)
 
-		# Combine all the statements into one string, run the query, and return
-		#	the results
-		return server.select(
-			'\n'.join(lStatements),
+		# Generate and return the SQL from the statements
+		return '\n'.join(lStatements)
+
+	def select(self,
+		distinct: bool = NOT_SET,
+		fields: list[str] = NOT_SET,
+		where: dict = NOT_SET,
+		groupby: str | list[str] = NOT_SET,
+		orderby: str | list[str] = NOT_SET,
+		limit: Limit = NOT_SET
+	) -> list[dict]:
+		"""Select
+
+		Runs a select query and returns the results
+
+		Arguments:
+			distinct (bool): Optional, True to only return distinct records
+			fields (str[]): Optional, the list of fields to return from the table
+			where (dict): Optional, field/value pairs to decide what records to
+							get
+			groupby (str | str[]): Optional, a field or fields to group by
+			orderby (str | str[]): Optional, a field or fields to order by
+			limit (records.Limit): Optional, the limit and starting point
+
+		Returns:
+			dict[]
+		"""
+
+		# Generate and run the query, then store the results
+		lRows = server.select(
+			self._update(distinct, fields, where, groupby, orderby, limit),
 			self._struct.host
 		)
 
-	def update(self,
-		values: dict,
-		where: dict = None,
-		conflict: str = 'error') -> int:
-		"""Update
+		# If we have any data to convert in this table
+		if self._convert:
 
-		Updates a specific field to the value for an ID, many IDs, or the entire
-		table
+			# Go through each row
+			for d in lRows:
 
-		Arguments:
-			values (dict): The dictionary of fields to values to be updated
-			where (dict): Optional, field/value pairs to decide what records get
-							updated
-			conflict (str): Must be one of 'error', 'ignore'
+				# Go through each field
+				for l in self._convert:
+
+					# If the field exists and isn't None
+					if l[0] in d and d[l[0]] is not None:
+
+						# If it's a bool
+						if l[1] == BOOL_CONVERT:
+							d[l[0]] = d[l[0]] and True or False
+
+						# If it's JSON
+						elif [l[1]] == JSON_CONVERT:
+							d[l[0]] = jsonb.decode(d[l[0]])
+
+		# Return the rows
+		return (limit and limit.max == 1) and lRows[0] or lRows
+
+	def transaction(self) -> Transaction:
+		"""Transaction
+
+		Returns a new Transaction object associated with the instance
 
 		Returns:
-			uint: Number of records altered
+			Transaction
+		"""
+		return Transaction(self)
+
+	def _update(self,
+		values: dict,
+		where: dict = None,
+		conflict: str = 'error'
+	) -> str:
+		"""_update
+
+		Generates the actual UPDATE SQL
+
+		Returns:
+			str
 		"""
 
 		# If we didn't get a dictionary
@@ -1103,7 +1294,7 @@ class Table():
 		for f in values.keys():
 
 			# If the field doesn't exist
-			if f not in self._parent:
+			if f not in self._columns:
 				raise ValueError(
 					'record_mysql.table.update.values `%s` not a valid node' % \
 					f
@@ -1116,8 +1307,8 @@ class Table():
 
 			# Escape the value using the node
 			lSet.append('`%s` = %s' % (
-				f, self.escape(
-					self._parent[f],
+				f, escape(
+					self.get(f),
 					values[f],
 					self._struct.host
 				)
@@ -1133,7 +1324,7 @@ class Table():
 			for f,v in where.items():
 
 				# If the field doesn't exist
-				if f not in self._parent:
+				if f not in self._columns:
 					raise ValueError(
 						'record_mysql.table.update.where `%s` not a valid ' \
 						'node' % f
@@ -1144,18 +1335,40 @@ class Table():
 					'`%s` %s' % (f, self.process_value(f, v))
 				)
 
-		# Generate the SQL to update the field
-		sSQL = 'UPDATE `%s`.`%s` ' \
+		# Generate the SQL to update the field and return it
+		return 'UPDATE `%s`.`%s` ' \
 				'SET %s ' \
 				'%s' % (
 			self._struct.db,
-			self._struct.table,
+			self._struct.name,
 			',\n'.join(lSet),
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
 		)
 
+	def update(self,
+		values: dict,
+		where: dict = None,
+		conflict: str = 'error'
+	) -> int:
+		"""Update
+
+		Updates a specific field to the value for an ID, many IDs, or the entire
+		table
+
+		Arguments:
+			values (dict): The dictionary of fields to values to be updated
+			where (dict): Optional, field/value pairs to decide what records get
+							updated
+			conflict (str): Must be one of 'error', 'ignore'
+
+		Returns:
+			uint: Number of records altered
+		"""
+
 		# Update all the records and return the number of rows changed
-		return server.execute(sSQL, self._struct.host)
+		return server.execute(self._update(
+			values, where, conflict
+		), self._struct.host)
 
 	def uuid(self) -> str:
 		"""UUID
@@ -1171,3 +1384,4 @@ class Table():
 
 		# Get the UUID
 		server.uuid(self._struct.host)
+

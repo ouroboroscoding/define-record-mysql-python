@@ -16,16 +16,14 @@ __all__ = ['Limit', 'Storage']
 import re
 
 # Pip imports
-from define import Node, NOT_SET
+from define import NOT_SET
 from jobject import JObject
-import jsonb
-from record import Limit, Storage as _Storage
-from tools import eval, merge
+from record import Storage as _Storage
+from record.types import Limit
+from tools import merge
 
 # Local imports
-from . import Literal, server
 from .data import Data
-from .table import Table
 
 class Storage(_Storage):
 	"""Storage
