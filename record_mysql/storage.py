@@ -17,13 +17,14 @@ import re
 
 # Pip imports
 from define import NOT_SET
-from jobject import JObject
+from jobject import jobject
 from record import Storage as _Storage
 from record.types import Limit
 from tools import merge
 
 # Local imports
 from .data import Data
+from .parent import Parent
 
 class Storage(_Storage):
 	"""Storage
@@ -60,23 +61,10 @@ class Storage(_Storage):
 		# Call the parent constructor
 		super().__init__(details, extend)
 
-		# Get the '__mysql__' special data and merge it on top of the default
-		#	data
-		self._struct = merge(JObject({
-			'auto_key': True,
-			'db': 'db',
-			'host': '_',
-			'indexes': [],
-			'key': '_id',
-			'revisions': False,
-			'table': None
-		}), self.special('mysql', {}))
+		# Create the top level parent for the record
+		self._parent = Parent(self._name, None, self)
 
-		# If we're missing a table name
-		if self._struct.table is None:
-			raise ValueError('record_mysql.Storage __mysql__.table must be set')
-
-	def add(self, value: dict, conflict: str = 'error', changes: dict = None) -> str:
+	def add(self, value: dict, conflict: str = 'error', revision: dict = None) -> str:
 		"""Add
 
 		Adds one or more raw records to the mysql database table
@@ -85,13 +73,48 @@ class Storage(_Storage):
 			value (dict): A dictionary of fields to data
 			conflict (str|list): Must be one of 'error', 'ignore', 'replace',
 				or a list of fields to update
-			changes (dict): Data needed to store a change record, is
-				dependant on the 'changes' config value
+			revision (dict): Data needed to store a change record, is
+				dependant on the 'revision' config value
 
 		Returns:
 			The ID of the added record
 		"""
-		pass
+
+		# Create a new ID for this record
+		sID = self.uuid()
+
+		# Take the incoming data, and pass it to the parent to set
+		mData = self._parent.set(sID, value)
+
+		# If we store revisions
+		if self._parent._table._struct.revisions:
+
+			# If we have old data
+			if mData:
+
+				# Generate the revisions in the data
+				dRevisions = self.revision_generate(mData, value)
+
+			# Else, revisions are simple
+			else:
+				dRevisions = { 'old': None, 'new': value }
+
+			# If revisions requires fields
+			if isinstance(self._parent._table._struct.revisions, list):
+
+				# If they weren't passed
+				if not isinstance(revision, dict):
+					raise ValueError('revision')
+
+				# Else, add the extra fields
+				for f in self._parent._table._struct.revisions:
+					dRevisions[f] = revision[f]
+
+			# Add the data to the table using the same ID
+			self._parent._table.revision_add(sID, dRevisions)
+
+		# Return the ID of the new record
+		return sID
 
 	def create(self,
 		value: dict | list = {},
@@ -140,7 +163,7 @@ class Storage(_Storage):
 		Returns:
 			int
 		"""
-		pass
+		return self._parent.count(filter)
 
 	def uuid(self) -> str:
 		"""UUID

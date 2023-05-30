@@ -19,11 +19,12 @@ from copy import copy
 # Pip imports
 import define
 from jobject import JObject
-from tools import combine, compare, merge, without
+from tools import combine, compare, lfindi, merge, without
 
 # Local imports
 from .base import Base
 from .table import Table
+from .transaction import Transaction
 
 class Leveled(Base):
 	"""Leveled
@@ -444,6 +445,68 @@ class Leveled(Base):
 		# Get the parent's IDs or return them as is
 		return self._parent and self._parent.get_ids(lIDs) or lIDs
 
+	def delete(self,
+		_id: str,
+		ta: Transaction
+	) -> list | dict | None:
+		"""Delete
+
+		Deletes one or more rows associated with the given ID and returns what
+		was deleted
+
+		Arguments:
+			_id (str): The unique ID associated with rows to be deleted
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
+
+		Returns:
+			list | None
+		"""
+
+		# Create a transaction using our table
+		lTA = self._table.transaction()
+
+		# Get the existing data with the levels
+		lOldData = self._table.select(
+			where = { '_parent' : _id },
+			orderby = self._levels
+		)
+
+		# If any exists
+		if lOldData:
+
+			# Delete them
+			lTA.delete(where = { '_id': [d['_id'] for d in lOldData] })
+
+			# Go through each complex field
+			for f in self._complex:
+
+				# Go through each old row
+				for i in range(len(lOldData)):
+					mRet = self._complex[f].delete(lOldData[i]['_id'], lTA)
+					if mRet:
+						lOldData[i][f] = mRet
+
+		# If we have a transaction passed in, extend it with ours
+		if ta:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful, return failure
+			if not lTA.run():
+				return False
+
+		# If we have old data
+		if lOldData:
+			lOldData = self._elevate(
+				without(lOldData, ['_id', '_parent'])
+			)
+
+		# Return the data
+		return lOldData or None
+
 	def filter(self, filter: any) -> list[str]:
 		"""Filter
 
@@ -504,43 +567,124 @@ class Leveled(Base):
 			list(dRows.values())
 		)
 
+	def set(self,
+		id: str,
+		data: dict,
+		ta: Transaction
+	) -> dict | list | None:
+		"""Set
+
+		Sets the rows associated with the given ID and returns the previous rows
+		that were overwritten if there's any changes
+
+		Arguments:
+			id (str): The ID of the parent
+			data (dict): A dict representing a structure of data to be set
+							under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
+
+		Returns:
+			list | None
+		"""
+
+		# Set the local transaction
+		lTA = self._table.transaction()
+
+		# See if we have any existing rows
+		lOldData = self._table.select(
+			where = { '_parent': id },
+			orderby = self._levels
+		)
+
+		# If we do
+		if lOldData:
+
+			# Delete the existing data
+			lTA.delete( where = { '_parent': id })
+
+			# Go through each complex field
+			for f in self._complex:
+
+				# Go through each record
+				for i in range(len(lOldData)):
+
+					# Delete the rows associated
+					mRet = self._complex[f].delete(lOldData[i]['_id'])
+					if mRet:
+						lOldData[i][f] = mRet
+
+			# Elevate the old data
+			lOldData = self._elevate(lOldData)
+
+		# Flatten the passed in data
+		lData = self._flatten(data)
+
+		# Go through each one of the rows passed in
+		for d in lData:
+
+			# Create a new row with a new ID, the parent, and all the local
+			#	columns that were passed in
+			dRow = {
+				'_id': self._table.uuid(),
+				'_parent': id
+				**{
+					k: d[k] for k in self._columns if k in d
+				}
+			}
+
+			# Insert the row
+			lTA.insert(dRow)
+
+			# Go through each complex field
+			for f in self._complex:
+
+				# If we have data for the field
+				if f in d:
+
+					# Set any records
+					self._complex[f].set(dRow['_id'], d[f], lTA)
+
+		# If we have a transaction passed in, extend it with ours
+		if ta:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful
+			if not lTA.run():
+				return None
+
+		# Return the old data
+		return lOldData or None
+
 	def update(self,
 		id: str,
 		data: list | dict,
-		return_revisions: bool
-	) -> list | dict | bool:
+		ta: Transaction
+	) -> list | None:
 		"""Update
 
-		Updates the record(s) associated with the given ID and returns True if
-		something was updated. If `return_revisions` is True, the revisions list
-		or dict will be returned instead of True. In all cases, nothing being
-		updated returns False
+		Updates the rows associated with the given ID and returns the previous
+		ows that were overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID to update records for
 			data (list | dict): A list or dict representing a structure of data
 									to be updated under the given ID
-			return_revisions (bool): If True, returns a structure of values
-									changed instead of True
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
 
 		Returns:
-			list | dict | bool
+			list | None
 		"""
 
-		# Init the return
-		if return_revisions:
-			if self.__class__.__name__ == 'Array':
-				mRet = []
-			else:
-				mRet = {}
-		else:
-			mRet = False
+		# Set the local transaction
+		lTA = self._table.transaction()
 
 		# Flatten the values recieved so we can compare them to the table rows
 		lData = self._flatten(data)
-
-		# Create the transactions list
-		oT = self._table.transaction()
 
 		# If it's a single node table
 		if self._node:
@@ -555,149 +699,146 @@ class Leveled(Base):
 			# If the data is not the same
 			if not compare(lValues, lData):
 
-				# Create a new transaction
-				oT = self._table.transaction()
-
-				# Generate the SQL to delete all rows associated with the parent
-				oT.add('delete', where = { '_parent': id })
+				# Delete all rows associated with the parent
+				lTA.delete({ '_parent': id })
 
 				# Go through each new row
 				for d in lData:
 
 					# Generate the SQL to insert the row with the parent ID
-					oT.add('insert', values = combine(
+					lTA.insert( values = combine(
 						d, { '_parent': id }
 					))
 
-				# Run all the SQL statements
-				oT.go()
-
-				# If we want revisions
-				if return_revisions:
-					return {
-						'old': self._elavate(lValues),
-						'new': data
-					}
+				# Return the old records
+				return self._elevate(lValues)
 
 		# Else, we have a multi-value table
 		else:
 
-			# Fetch the records associated with the ID
-			dRows = {d['_id']:d for d in self._table.select(
+			# Store the old records
+			lOldData = self._table.select(
 				where = { '_parent': id },
 				orderby = self._levels
-			)}
+			)
+
+			# Init the list of IDs to delete
+			lToDelete = []
+
+			# Go through each row of the old data
+			for i in range(len(lOldData)):
+
+				# If there's no corresponding record in the data
+				if not next(o for o in data if d['_id'] == lOldData[i]['_id']):
+
+					# Store the ID
+					lToDelete.append(lOldData[i]['_id'])
+
+					# Go through each complex field
+					for f in self._complex:
+						mTemp = self._complex[f].delete(lOldData[i]['_id'], lTA)
+						if mTemp:
+							lOldData[i][f] = mTemp
+
+			# If there's any to delete
+			if lToDelete:
+				self._table.delete({ '_id': lToDelete })
 
 			# Init the list of IDs with array swaps
-			lSwapIDs = []
+			lSwapIDs = set()
 			lSwapFields = set()
 
 			# Go through each "row" passed
 			for d in lData:
 
-				# If it has an ID and it exists in the rows
-				if '_id' in d and d['_id'] in dRows:
+				# Find the index of the old data
+				i = -1
+				if '_id' in d:
+					i = lfindi(lOldData, '_id', d['_id'])
 
-					# If it has the deleted record
-					if '__delete__' in d:
+				# If it has a valid ID
+				if i > -1:
 
-						# Add the delete to the transactions
-						oT.add('delete', where = { '_id': d['_id'] })
+					# Init the fields to update
+					dUpdate = {}
 
-						# Mark the record as removed
-						mRet = {
-							'old': without(dRows[d['_id']], self._levles),
-							'new': None
-						}
+					# Go through each level
+					for s in self._levels:
 
-					# Else, we are updating
-					else:
+						# If it's an array
+						if s[1:2] == 'a':
 
-						# Init the fields to update
-						dUpdate = {}
+							# If data doesn't match, the record has moved
+							#	somewhere down the line
+							if d[s] != lOldData[i][s]:
 
-						# Go through each level
-						for s in self._levels:
+								# Store the value as it's opposite and store the
+								# ID so we know to fix it later
+								dUpdate[s] = -d[s]
+								lSwapIDs.add(d['_id'])
+								lSwapFields.add(s)
 
-							# If data doesn't match, the record has moved somewhere
-							#	down the line
-							if d[s] != dRows[d['_id']][s]:
+						# Else, if it's a hash
+						elif s[1:2] == 'h':
 
-								# If it's an array, store the value as it's opposite
-								#	and store the ID so we know to fix it later
-								if s[1:2] == 'a':
-									dUpdate[s] = -d[s]
-									lSwapIDs.append(d['_id'])
-									lSwapFields.add(s)
+							# And a the value has changed
+							if d[s] != lOldData[i][s]:
+								raise ValueError(
+									'define.Hash keys associated with an _id ' \
+									'can not be changed. Change the values ' \
+									'instead'
+								)
 
-								# Else, if it's a hash, just change the value, we
-								#	should be fine
-								elif s[1:2] == 'h':
-									dUpdate[s] = d[s]
+					# Go through each possible field of the actual data
+					for f in self._columns:
 
-						# Go through each possible field of the actual data
-						for f in self._columns:
+						# If the field exists in the data
+						if f in d:
 
-							# If the field exists in the data
-							if f in d:
+							# If the value doesn't exist in the existing
+							#	data, or it does but it's different
+							if f not in lOldData[i] or \
+								lOldData[i][f] != d[f]:
 
-								# If the value doesn't exist in the existing
-								#	data, or it does but it's different
-								if f not in dRows[d['_id']] or \
-									dRows[d['_id']][f] != d[f]:
+								# Update the field
+								dUpdate[f] = d[f]
 
-									# Update the field
-									dUpdate[f] = d[f]
+					# If we have anything to update
+					if dUpdate:
 
-									# If we want revisions
-									if return_revisions:
-										mRet[f] = {
-											'old': f in dRows[d['_id']] and \
-													dRows[d['_id']]['f'] or \
-													None,
-											'new': d[f]
-										}
+						# Add it to the transaction
+						lTA.update(dUpdate, { '_id': d['_id'] })
 
-									# Else, just true
-									else:
-										mRet = True
+					# Go through each complex
+					for f in self._complex:
 
-						# If the number of updates equals the total columns
-						if len(dUpdate) == len(self._columns):
-							mRet = {
-								'old': self._elevate(dRows[d['_id']]),
-								'new': self._elevate(d)
-							}
+						# Try to update the data
+						mTemp = self._complex[f].update(
+							d['_id'],
+							d[f],
+							lTA
+						)
+						if mTemp:
+							lOldData[i][f] = mTemp
 
-						# If we have anything to update
-						if dUpdate:
-
-							# Add it to the transaction
-							oT.add('update',
-								values = dUpdate,
-								where = { '_id': d['_id'] }
-							)
-
-				# If it doesn't have an ID, assume a new record
+				# If it doesn't have an ID, or the ID is invalid, it's going to
+				#	be a new row
 				else:
 
+					# Generate a unique ID and set it
+					d['_id'] = self._table.uuid()
+
+					# Add the parent
+					d['_parent'] = id
+
 					# Add the create to the transactions
-					oT.add('insert', values = d)
-					if return_revisions:
-						mRet = {
-							'old': None,
-							'new': d
-						}
-					else:
-						mRet = True
-
-
+					lTA.insert(d)
 
 			# If we had any swaps
 			if lSwapIDs:
 
 				# Add the swap statement
-				oT._sql("UPDATE `%s`.`%s` SET %s WHERE `_id` IN ('%s')" % (
+				lTA.append("UPDATE `%s`.`%s` SET %s WHERE `_id` IN ('%s')" % (
 					self._table._struct.db,
 					self._table._struct.name,
 					', '.join([
@@ -706,44 +847,15 @@ class Leveled(Base):
 					"','".join(lSwapIDs)
 				))
 
-			# Run all the transactions
-			if not oT.go():
-				mRet = False
+			# Remove the ID and parent and then elevate the old data before
+			#	returning it
+			if lOldData:
+				lOldData = self._elevate(
+					without(lOldData, ['_id', '_parent'])
+				)
 
-			# Go through each "row" passed
-			for d in lData:
-
-				# Go through each complex part
-				for f in self._complex:
-
-					# If it exists in the values
-					if f in d:
-
-						# Set it
-						mComplexRet = self._complex[f].set(
-							id,
-							d[f],
-							return_revisions
-						)
-
-						# If we got a positive result
-						if mComplexRet:
-
-							# If we are returning revisions, add them to the return
-							if return_revisions:
-								mRet[f] = mComplexRet
-
-							# Else, note that something changed
-							else:
-								mRet = True
-
-		# If we want revisions but we only have an empty dict, change the
-		#	return to False
-		if return_revisions and not mRet:
-			mRet = False
-
-		# Return the result
-		return mRet
+		# Return the old data
+		return lOldData or None
 
 # Add the Array and Hash types to the base
 Base.add_type('Array')

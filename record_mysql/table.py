@@ -19,7 +19,7 @@ import re
 
 # Pip imports
 from define import Node, NOT_SET
-from jobject import JObject
+from jobject import jobject
 import jsonb
 from record.types import Limit
 from tools import merge
@@ -236,12 +236,12 @@ class Func(object):
 	Used as a field that won't be escaped or parsed
 	"""
 
-	def __init__(self, name: str, field: str):
+	def __init__(self, name: str, params: str):
 		if not isinstance(name, str):
 			raise ValueError('`name` in Func must be a string')
-		if not isinstance(field, str):
-			raise ValueError('`field` in Func must be a string')
-		self._text = '%s(%s)' % (name, field)
+		if not isinstance(params, str):
+			raise ValueError('`params` in Func must be a string')
+		self._text = '%s(%s)' % (name, params)
 	def __str__(self):
 		return self._text
 	def get(self):
@@ -284,7 +284,7 @@ class Table(object):
 		"""
 
 		# Generate the structure
-		self._struct: dict = merge({
+		self._struct: jobject = merge(jobject({
 			'auto_key': False,
 			'db': 'db',
 			'host': '_',
@@ -292,7 +292,7 @@ class Table(object):
 			'key': False,
 			'revisions': False,
 			'name': None
-		}, struct)
+		}), struct)
 
 		# If the table name is missing
 		if not isinstance(self._struct.name, str):

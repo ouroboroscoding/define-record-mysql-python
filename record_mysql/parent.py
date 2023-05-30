@@ -12,13 +12,9 @@ __created__		= "2023-04-03"
 # Limit exports
 __all__ = ['Parent']
 
-# Python imports
-from copy import copy
-
 # Pip imports
 import define
 from jobject import jobject
-from record.types import Limit
 from tools import merge, without
 
 # Local imports
@@ -149,6 +145,71 @@ class Parent(Base):
 		#	are passed to us, are the top most IDs, and can be returned as is.
 		return ids
 
+	def delete(self,
+		_id: str,
+		ta: Transaction
+	) -> list | dict | None:
+		"""Delete
+
+		Deletes the row associated with the given ID and returns it
+
+		Arguments:
+			_id (str): The unique ID associated with rows to be deleted
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
+
+		Returns:
+			dict | None
+		"""
+
+		# Init the return
+		dOldData = {}
+
+		# Init the local transaction
+		lTA = []
+
+		# If we have a table
+		if self._table:
+
+			# Create a transaction using our table
+			lTA = self._table.transaction()
+
+			# Get the existing data without special keys
+			dOldData = self._table.select(
+				fields = self._columns.keys(),
+				where = { '_id' : _id },
+				limit = (1,)
+			)
+
+			# If we got a record
+			if dOldData:
+
+				# Delete it
+				lTA.delete(where = { '_id': _id })
+
+		# Go through each complex
+		for f in self._complex:
+
+			# Tell the child to delete the same ID, and pass our transaction
+			#	list to it
+			mTemp = self._complex[f].delete(_id, lTA)
+			if mTemp:
+				dOldData[f] = mTemp
+
+		# If we have a transaction passed in, extend it with ours
+		if ta:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful
+			if not lTA.run():
+				return None
+
+		# Return the data
+		return dOldData and dOldData or None
+
 	def filter(self, filter: dict) -> list[str]:
 		"""Filter
 
@@ -211,34 +272,27 @@ class Parent(Base):
 
 	def set(self,
 		id: str,
-		values: dict,
-		return_revisions: bool,
-		ta: Transaction = None
-	) -> bool:
+		data: dict,
+		ta: Transaction
+	) -> dict | list | None:
 		"""Set
 
-		Sets the row associated with the given ID and returns True if the row
-		is inserted or updated. If `return_revisions` is True, the revisions
-		dict will be returned instead of True. In all cases, nothing being set
-		returns False
+		Sets the row associated with the given ID and returns the previous row
+		that was overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID of the parent
-			values (dict): A dict representing a structure of data to be set
+			data (dict): A dict representing a structure of data to be set
 							under the given ID
-			return_revisions (bool): Optional, if True returns a structure of
-									values changed instead of True
-			ta (Transaction): The Transaction instance to add statements to
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
 
 		Returns:
-			dict | bool
+			dict | None
 		"""
 
 		# Init the return
-		if return_revisions:
-			mRet = {}
-		else:
-			mRet = False
+		dOldData = {}
 
 		# Set the local transaction by creating one from the table, or if there
 		#	isn't one, use an empty list, we can pass it up either way
@@ -250,7 +304,7 @@ class Parent(Base):
 		# Go through each one of the columns to see if any are present
 		bTableCheck = False
 		for f in self._columns:
-			if f in values:
+			if f in data:
 				bTableCheck = True
 				break
 
@@ -261,104 +315,43 @@ class Parent(Base):
 		# If any field in the table associated with this instance is present
 		if bTableCheck:
 
-			# Make a copy of the values without the complex fields
-			dValues = without(values, self._complex.keys())
-
-			# Set any missing values to None
-			for f in self._columns:
-				if f not in dValues:
-					dValues = None
-
 			# Fetch the record associated with the ID
-			dRow = self._table.select(
+			dOldData = self._table.select(
+				fields = self._columns.keys(),
 				where = { '_id': id },
 				limit = (1,)
 			)
 
-			# If it doesn't exist
-			if not dRow:
+			# If it exists
+			if dOldData:
 
-				# Create a new record from the data
-				lTA.insert(dValues)
+				# Update the row in the table
+				lTA.update(without(data, self._keys.keys()), {
+					'_id': id
+				})
 
-				# Set the return
-				if return_revisions:
-					for f in self._columns:
-						mRet[f] = { 'old': None, 'new': dValues[f] }
-						iFullChange += 1
-				else:
-					mRet = True
-
-			# Else, we already have the row
+			# Else, it's a new row
 			else:
 
-				# Go through each column
-				for f in self._columns:
-
-					# If the values are different
-					if dRow[f] != values[f]:
-
-						# Set the return
-						if return_revisions:
-							mRet[f] = { 'old': dRow[f], 'new': dValues[f] }
-							iFullChange += 1
-						else:
-							mRet = True
-
-					# Else, remove the field from the values
-					else:
-						del dValues[f]
-
-				# If there's anything left to update
-				if dValues:
-
-					# Update the row in the table
-					lTA.update(dValues, {
-						'_id': id
-					})
+				# Create a new record from the data using the passed ID
+				lTA.insert({
+					**{ '_id': id },
+					**without(data, self._keys.keys())
+				})
 
 		# Go through each complex field
 		for f in self._complex:
 
 			# Call its set method
-			mComplexRet = self._complex[f].set(
-				id,					# The same ID we got
-				values[f],			# The values for that specific field
-				return_revisions,	# The same return_revisions we got
-				lTA					# Our transaction object
+			mRet = self._complex[f].set(
+				id,			# The same ID we got
+				data[f],	# The values for that specific field
+				lTA			# Our transaction object
 			)
 
 			# If we were successful
-			if mComplexRet:
-
-				# If we want revisions, add them
-				if return_revisions:
-					mRet[f] = mComplexRet
-
-					# If the revisions indicate the entire value changed
-					if 'old' in mComplexRet and 'new' in mComplexRet:
-						iFullChange += 1
-
-				# Else, just mark that something was set
-				else:
-					mRet = True
-
-		# If we want revisions
-		if return_revisions:
-
-			# If every single field in the instance changed completely
-			if iFullChange == (len(self._columns) + len(self._complex)):
-
-				# Reorder the result
-				dReorder = { 'old': {}, 'new': {} }
-				for f in mRet:
-					dReorder['old'][f] = mRet[f]['old']
-					dReorder['new'][f] = mRet[f]['new']
-				mRet = dReorder
-
-			# Else, if we have nothing, set the return to False
-			elif not mRet:
-				mRet = False
+			if mRet:
+				dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
 		if ta:
@@ -369,41 +362,34 @@ class Parent(Base):
 
 			# If we were not successful
 			if not lTA.run():
-				return False
+				return None
 
-		# Return success or failure
-		return mRet
+		# Return the old data
+		return dOldData
 
 	def update(self,
 		id: str,
-		values: dict,
-		return_revisions: bool,
-		ta: Transaction = None,
-	) -> dict | bool:
+		data: dict,
+		ta: Transaction
+	) -> dict | None:
 		"""Update
 
-		Updates the record associated with the given ID and returns True if
-		something was updated. If `return_revisions` is True, the revisions dict
-		will be returned instead of True. In all cases, nothing being updated
-		returns False
+		Updates the row associated with the given ID and returns the previous
+		row that was updated if there's any changes
 
 		Arguments:
 			id (str): The ID to update records for
-			values (dict): A dict representing a structure of data to be
-							updated under the given ID
-			return_revisions (bool): if True returns a structure of values
-										changed instead of True
-			ta (Transaction): The Transaction instance to add statements to
+			data (list | dict): A list or dict representing a structure of data
+									to be updated under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
 
 		Returns:
-			dict | bool
+			dict | None
 		"""
 
 		# Init the return
-		if return_revisions:
-			mRet = {}
-		else:
-			mRet = False
+		dOldData = {}
 
 		# Set the local transaction by creating one from the table, or if there
 		#	isn't one, use an empty list, we can pass it up either way
@@ -415,7 +401,7 @@ class Parent(Base):
 		# Go through each one of the columns to see if any are present
 		bTableCheck = False
 		for f in self._columns:
-			if f in values:
+			if f in data:
 				bTableCheck = True
 				break
 
@@ -426,101 +412,63 @@ class Parent(Base):
 		# If any field in the table associated with this instance is present
 		if bTableCheck:
 
-			# Make a copy of the values without the complex fields
-			dValues = without(values, self._complex.keys())
+			# Make a copy of the data without the complex fields
+			dData = without(data, self._complex.keys())
 
 			# Fetch the record associated with the ID
-			dRow = self._table.select(
+			dOldData = self._table.select(
+				fields = self._columns.keys(),
 				where = { '_id': id },
 				limit = (1,)
 			)
 
-			# If we don't have a row
-			if not dRow:
+			# If we have the row
+			if dOldData:
 
-				# Create a new record from the data
-				lTA.insert(dValues)
-
-				# Set the return
-				if return_revisions:
-					for f in self._columns:
-						mRet[f] = { 'old': None, 'new': dValues[f] }
-						iFullChange += 1
-				else:
-					mRet = True
-
-			# Else, we already have the row
-			else:
+				# Keep a list of changes
+				dUpdates = {}
 
 				# Go through each possible field
 				for f in self._columns:
 
 					# If the field exists in the values
-					if f in dValues:
+					if f in data:
 
 						# If the value doesn't exist in the existing data, or it
 						#	does but it's different
-						if f not in dRow or dRow[f] != dValues[f]:
-							if return_revisions:
-								mRet[f] = {
-									'old': f in dRow and dRow[f] or None,
-									'new': dValues[f]
-								}
-							else:
-								mRet = True
-
-						# Else,
-						else:
-							del dValues[f]
+						if f not in dOldData or dOldData[f] != data[f]:
+							dUpdates[f] = data[f]
 
 				# If we have anything left to update
-				if dValues:
+				if dUpdates:
 
 					# Add the update to the transactions
-					lTA.update(dValues, { '_id': id })
+					lTA.update(dUpdates, {
+						'_id': id
+					})
+
+			# Else, we already have the row
+			else:
+
+				# Create a new record from the data using the passed ID
+				lTA.insert({
+					**{ '_id': id },
+					**without(data, self._keys.keys())
+				})
 
 		# Go through each complex field
 		for f in self._complex:
 
 			# Call its update method
-			mComplexRet = self._complex[f].update(
-				id,					# The same ID we got
-				values[f],			# The values for that specific field
-				return_revisions,	# The same return_revisions we got
-				lTA					# Our transaction object
+			mRet = self._complex[f].update(
+				id,			# The same ID we got
+				data[f],	# The values for that specific field
+				lTA			# Our transaction object
 			)
 
 			# If we were successful
-			if mComplexRet:
-
-				# If we want revisions, add them
-				if return_revisions:
-					mRet[f] = mComplexRet
-
-					# If the revisions indicate the entire value changed
-					if 'old' in mComplexRet and 'new' in mComplexRet:
-						iFullChange += 1
-
-				# Else, just mark that something was set
-				else:
-					mRet = True
-
-		# If we want revisions
-		if return_revisions:
-
-			# If every single field in the instance changed completely
-			if iFullChange == (len(self._columns) + len(self._complex)):
-
-				# Reorder the result
-				dReorder = { 'old': {}, 'new': {} }
-				for f in mRet:
-					dReorder['old'][f] = mRet[f]['old']
-					dReorder['new'][f] = mRet[f]['new']
-				mRet = dReorder
-
-			# Else, if we have nothing, set the return to False
-			elif not mRet:
-				mRet = False
+			if mRet:
+				dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
 		if ta:
@@ -531,7 +479,7 @@ class Parent(Base):
 
 			# If we were not successful
 			if not lTA.run():
-				return False
+				return None
 
 		# Return success or failure
 		return mRet

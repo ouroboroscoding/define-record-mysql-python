@@ -18,12 +18,11 @@ from abc import ABC, abstractmethod
 from copy import copy
 
 # Pip imports
-import define
-from jobject import JObject
-from tools import without
+from define import Base as _Base, NOT_SET
+from jobject import jobject
 
 # Local imports
-from .table import Table
+from .table import Func, Table
 from .transaction import Transaction
 
 class Base(ABC):
@@ -137,7 +136,7 @@ class Base(ABC):
 		type_: str,
 		name: str,
 		parent: Base,
-		details: define.Base
+		details: _Base
 	) -> Base:
 		"""Create Type
 
@@ -159,6 +158,24 @@ class Base(ABC):
 		# Create and return a new instance of the type
 		return cls.__types[type_](name, parent, details)
 
+	def count(self, filter: dict = NOT_SET) -> int:
+		"""Count
+
+		Returns the count of records, with or without a filter
+
+		Arguments:
+			filter (dict): Optional, filter to apply to records
+
+		Returns:
+			int
+		"""
+
+		# Call the table's count
+		return self._table.select(
+			fields = [Func('COUNT', '*')],
+			where = filter
+		)
+
 	@abstractmethod
 	def _get_ids(self, ids: list[any]) -> list[any]:
 		"""Get IDs
@@ -170,6 +187,26 @@ class Base(ABC):
 
 		Returns:
 			str[]
+		"""
+		pass
+
+	@abstractmethod
+	def delete(self,
+		_id: str,
+		ta: Transaction
+	) -> list | dict | None:
+		"""Delete
+
+		Deletes one or more rows associated with the given ID and returns what
+		was deleted
+
+		Arguments:
+			_id (str): The unique ID associated with rows to be deleted
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
+
+		Returns:
+			list | dict | None
 		"""
 		pass
 
@@ -227,13 +264,36 @@ class Base(ABC):
 		# Return the overall result
 		return bRes
 
+	@abstractmethod
+	def set(self,
+		id: str,
+		data: dict,
+		ta: Transaction
+	) -> dict | list | None:
+		"""Set
+
+		Sets the row or rows associated with the given ID and returns the
+		previous row or rows that were overwritten if there's any changes
+
+		Arguments:
+			id (str): The ID of the parent
+			data (dict): A dict representing a structure of data to be set
+							under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
+
+		Returns:
+			dict | list | None
+		"""
+		pass
+
 	def struct(self) -> dict:
 		"""Structure
 
 		Returns a copy of the structure associated with this object
 
 		Returns:
-			dict
+			jobject
 		"""
 
 		# Return the structure of the table
@@ -251,31 +311,27 @@ class Base(ABC):
 			except AttributeError:
 
 				# Return an empty dict
-				return JObject({})
+				return jobject({})
 
 	@abstractmethod
 	def update(self,
 		id: str,
 		data: list | dict,
-		ta: Transaction,
-		return_revisions: bool
-	) -> list | dict | bool:
+		ta: Transaction
+	) -> list | dict | None:
 		"""Update
 
-		Updates the record(s) associated with the given ID and returns True if
-		something was updated. If `return_revisions` is True, the revisions list
-		or dict will be returned instead of True. In all cases, nothing being
-		updated returns False
+		Updates the row or rows associated with the given ID and returns the
+		previous row or rows that were overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID to update records for
 			data (list | dict): A list or dict representing a structure of data
 									to be updated under the given ID
-			ta (Transaction): The Transaction instance to add statements to
-			return_revisions (bool): If True, returns a structure of values
-									changed instead of True
+			ta (Transaction): Optional, the open transaction to add new sql
+			 					statements to
 
 		Returns:
-			list | dict | bool
+			list | dict | None
 		"""
 		pass
