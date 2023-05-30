@@ -25,8 +25,7 @@ from record.types import Limit
 from tools import merge
 
 # Local imports
-from . import server
-from .transaction import Transaction
+from . import server, transaction
 
 _node_to_sql = {
 	'any': False,
@@ -1258,15 +1257,15 @@ class Table(object):
 		# Return the rows
 		return (limit and limit.max == 1) and lRows[0] or lRows
 
-	def transaction(self) -> Transaction:
-		"""Transaction
+	def transaction(self) -> transaction.Transaction:
+		"""transaction.Transaction
 
-		Returns a new Transaction object associated with the instance
+		Returns a new transaction.Transaction object associated with the instance
 
 		Returns:
-			Transaction
+			transaction.Transaction
 		"""
-		return Transaction(self)
+		return transaction.Transaction(self)
 
 	def _update(self,
 		values: dict,

@@ -12,12 +12,8 @@ __created__		= "2023-04-01"
 # Limit imports
 __all__ = ['Limit', 'Storage']
 
-# Python imports
-import re
-
 # Pip imports
 from define import NOT_SET
-from jobject import jobject
 from record import Storage as _Storage
 from record.types import Limit
 from tools import merge

@@ -18,11 +18,10 @@ __all__ = ['Transaction']
 from typing import Literal as LT
 
 # Pip imports
-from record import NOT_SET
+from define import NOT_SET
 
 # Local imports
-from . import server
-from .table import Table
+from . import server, table
 
 class Transaction(list):
 	"""Transaction
@@ -30,14 +29,14 @@ class Transaction(list):
 	Keeps track of several mysql commands so that they can be run all together
 	"""
 
-	def __init__(self, table: Table):
+	def __init__(self, table: table.Table):
 		"""Constructor
 
 		Creates a new instance of the Transaction to keep track of SQL
 		statements and allow running them all at once
 
 		Arguments:
-			table (Table): The Table instance associated with the transaction
+			table (table.Table): The Table instance associated with the transaction
 
 		Returns:
 			Transaction
@@ -47,7 +46,7 @@ class Transaction(list):
 		super(Transaction, self).__init__([])
 
 		# Store the table instance
-		self._table: Table = table
+		self._table: table.Table = table
 
 	def delete(self, where: dict = NOT_SET) -> Transaction:
 		"""Delete
