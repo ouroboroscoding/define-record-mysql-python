@@ -95,11 +95,8 @@ class Transaction(list):
 			uint
 		"""
 
-		# Generate the entire transaction
-		sSQL = 'START TRANSACTION;\n%s\nCOMMIT;' % ';\n'.join(self)
-
 		# Execute the query on the host and return the results
-		return server.execute(sSQL, self._table._struct.host)
+		return server.execute(self, self._table._struct.host)
 
 	def update(self,
 		values: dict,

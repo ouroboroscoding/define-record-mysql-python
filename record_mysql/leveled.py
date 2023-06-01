@@ -18,7 +18,7 @@ from copy import copy
 
 # Pip imports
 import define
-from jobject import JObject
+from jobject import jobject
 from tools import combine, compare, lfindi, merge, without
 
 # Local imports
@@ -93,7 +93,7 @@ class Leveled(Base):
 
 				# Set the child to the new child and loop back around
 				oChild = oChild.child()
-				sClass = oChild.class_name()
+				sChild = oChild.class_name()
 				continue
 
 			# Else, if we got a Node, this is going to be a special table of
@@ -122,7 +122,7 @@ class Leveled(Base):
 					sFieldClass = oChild[f].class_name()
 
 					# Check for a special section
-					dMySQL = oChild[f].special('mysql', {})
+					dMySQL = oChild[f].special('mysql', default={})
 
 					# If it's a Node or meant to be stored as JSON
 					if sFieldClass == 'Node' or \
@@ -154,7 +154,7 @@ class Leveled(Base):
 		dParent = self._parent.struct()
 
 		# Init the structure
-		dStruct = JObject({
+		dStruct = jobject({
 			'auto_key': (self._node == False) and 'UUID()' or False,
 			'create': [
 				*self._keys.keys(),
@@ -570,7 +570,7 @@ class Leveled(Base):
 	def set(self,
 		id: str,
 		data: dict,
-		ta: Transaction
+		ta: Transaction | None = None
 	) -> dict | list | None:
 		"""Set
 
@@ -627,10 +627,9 @@ class Leveled(Base):
 			#	columns that were passed in
 			dRow = {
 				'_id': self._table.uuid(),
-				'_parent': id
-				**{
-					k: d[k] for k in self._columns if k in d
-				}
+				'_parent': id,
+				**{ k: d[k] for k in self._keys if k in d },
+				**{ k: d[k] for k in self._columns if k in d }
 			}
 
 			# Insert the row
@@ -858,5 +857,5 @@ class Leveled(Base):
 		return lOldData or None
 
 # Add the Array and Hash types to the base
-Base.add_type('Array')
-Base.add_type('Hash')
+Leveled.add_type('Array')
+Leveled.add_type('Hash')

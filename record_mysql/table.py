@@ -21,7 +21,6 @@ import re
 from define import Node, NOT_SET
 from jobject import jobject
 import jsonb
-from record.types import Limit
 from tools import merge
 
 # Local imports
@@ -319,7 +318,7 @@ class Table(object):
 			else:
 
 				# If it's not marked as JSON
-				dMySQL = self._columns[f].special('mysql', {})
+				dMySQL = self._columns[f].special('mysql', default={})
 				if 'json' not in dMySQL or not dMySQL['json']:
 					raise ValueError('record_mysql.table.%s must be flagged as JSON')
 
@@ -338,11 +337,14 @@ class Table(object):
 			bool
 		"""
 
+		print('---------------------------------------')
+		print('Create called for %s' % self._struct.name)
+
 		# If the 'create' value is missing
 		if 'create' not in self._struct:
 
 			# Get all the field names
-			self._struct.create = self._columns.keys()
+			self._struct.create = list(self._columns.keys())
 
 			# Order them alphabetically
 			self._struct.create.sort()
@@ -351,13 +353,17 @@ class Table(object):
 		if self._struct.key in self._struct.create:
 			self._struct.create.remove(self._struct.key)
 
+		print('Create: %s' % self._struct.create)
+
 		# Get all child node keys
-		lNodeKeys = self.keys()
+		lNodeKeys = self._columns.keys()
 		lMissing = [
 			s for s in lNodeKeys \
 			if s not in self._struct.create and \
 				s != self._struct.key
 		]
+
+		print('Node Keys: %s' % lNodeKeys)
 
 		# If any are missing
 		if lMissing:
@@ -376,7 +382,7 @@ class Table(object):
 
 			# Get the sql special data
 			try:
-				dMySQL = self._columns[f].special('mysql', {})
+				dMySQL = self._columns[f].special('mysql', default={})
 			except KeyError:
 				raise ValueError(
 					'record_myself.table._struct.create contains an ' \
@@ -396,10 +402,10 @@ class Table(object):
 			# Add the line
 			lFields.append('`%s` %s %s' % (
 				f,
-				('type' in dSQL and dSQL['type'] or \
+				('type' in dMySQL and dMySQL['type'] or \
 					_node_to_type(self._columns[f], self._struct.host)
 				),
-				('opts' in dSQL and dSQL['opts'] or \
+				('opts' in dMySQL and dMySQL['opts'] or \
 					(self._columns[f].optional() and 'null' or 'not null')
 				)
 			))
@@ -409,20 +415,20 @@ class Table(object):
 
 			# Push the primary key to the front
 			#	Get the sql special data
-			dSQL = self._columns[self._struct.key].special('mysql', {})
+			dMySQL = self._columns[self._struct.key].special('mysql', default={})
 
 			# If it's a string, store the value under 'type' in a new dict
-			if isinstance(dSQL, str):
-				dSQL = { 'type': dSQL }
+			if isinstance(dMySQL, str):
+				dMySQL = { 'type': dMySQL }
 
 			# Primary key type
-			sIDType = 'type' in dSQL and \
-						dSQL['type'] or \
+			sIDType = 'type' in dMySQL and \
+						dMySQL['type'] or \
 						_node_to_type(
-							self.get(self._struct.key),
+							self._columns[self._struct.key],
 							self._struct.host
 						)
-			sIDOpts = 'opts' in dSQL and dSQL['opts'] or 'not null'
+			sIDOpts = 'opts' in dMySQL and dMySQL['opts'] or 'not null'
 
 			# Add the line
 			lFields.insert(0, '`%s` %s %s%s' % (
@@ -437,6 +443,8 @@ class Table(object):
 
 		else:
 			lIndexes = []
+
+		print('Fields: %s' % lFields)
 
 		# If there are indexes
 		if self._struct.indexes:
@@ -483,14 +491,14 @@ class Table(object):
 							)
 
 						# Init the list of index fields
-						lFields = []
+						lIndexFields = []
 
 						# Go through each field in the list
 						for mf in mi.fields:
 
 							# If it's a string, use it as is
 							if isinstance(mf, str):
-								lFields.append('`%s`' % mf)
+								lIndexFields.append('`%s`' % mf)
 
 							# Else, if it's a dict
 							elif isinstance(mf, dict):
@@ -539,14 +547,14 @@ class Table(object):
 									sIndexFieldSize = ''
 
 								# Combine the parts into one index field
-								lFields.append('`%s`%s %s' % (
+								lIndexFields.append('`%s`%s %s' % (
 									mf.name,
 									sIndexFieldSize,
 									sIndexFieldOrder
 								))
 
 						# Join the fields together
-						sIndexFields = ', '.join(lFields)
+						sIndexFields = ', '.join(lIndexFields)
 
 					# Else, use the name as the field
 					else:
@@ -717,7 +725,10 @@ class Table(object):
 		)
 
 		# Delete the table
-		server.execute(sSQL, self._struct.host)
+		try:
+			server.execute(sSQL, self._struct.host)
+		except ValueError:
+			return False
 
 		# If revisions are required
 		if self._struct.revisions:
@@ -778,7 +789,7 @@ class Table(object):
 				lTemp[0].append('`%s`' % f)
 				if values[f] != None:
 					lTemp[1].append(escape(
-						f,
+						self._columns[f],
 						values[f],
 						self._struct.host
 					))
@@ -810,8 +821,8 @@ class Table(object):
 		del lTemp
 
 		# Generate the INSERT statement
-		return 'INSERT %sINTO `%s`.`%s` (%s)\n' \
-				' VALUES (%s)\n' \
+		return 'INSERT %sINTO `%s`.`%s` (%s) ' \
+				'VALUES (%s) ' \
 				'%s' % (
 					(conflict == 'ignore' and 'IGNORE ' or ''),
 					self._struct.db,
@@ -1054,7 +1065,7 @@ class Table(object):
 					)
 
 		# Generate the INSERT statement
-		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
+		sSQL = 'INSERT INTO `%s`.`%s_revisions` (`%s`, `created`, `items`) ' \
 				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 					self._struct.db,
 					self._struct.name,
@@ -1079,7 +1090,7 @@ class Table(object):
 		where: dict = NOT_SET,
 		groupby: str | list[str] = NOT_SET,
 		orderby: str | list[str] = NOT_SET,
-		limit: Limit = NOT_SET
+		limit: int | tuple = NOT_SET
 	) -> str:
 		"""_select
 
@@ -1092,8 +1103,7 @@ class Table(object):
 		# Init the statements list with the SELECT
 		lStatements = [
 			'SELECT %s%s\n' \
-			'FROM `%s`.`%s`\n' \
-			'%s' % (
+			'FROM `%s`.`%s`\n' % (
 				distinct and 'DISTINCT ' or '',
 				fields is NOT_SET and '*' or ','.join([
 					(isinstance(f, Func) and \
@@ -1189,16 +1199,17 @@ class Table(object):
 		# If there's anything to limit by
 		if limit is not NOT_SET:
 
-			# If we have a max
-			if limit.max:
+			# If we got an int
+			if isinstance(limit, int):
+				lStatements.append('LIMIT %d' % limit)
 
-				# If we have a start as well, use both
-				if limit.start:
-					lStatements.append('LIMIT %d, %d' % limit)
+			# Else, if we got a tuple
+			elif isinstance(limit, tuple):
+				lStatements.append('LIMIT %d, %d' % limit)
 
-				# Else, we just have a max
-				else:
-					lStatements.append('LIMIT %d' % limit.max)
+			# Else
+			else:
+				raise ValueError('record-mysql.table limit must be an int or a tuple, received: %s' % type(limit))
 
 		# Generate and return the SQL from the statements
 		return '\n'.join(lStatements)
@@ -1209,7 +1220,7 @@ class Table(object):
 		where: dict = NOT_SET,
 		groupby: str | list[str] = NOT_SET,
 		orderby: str | list[str] = NOT_SET,
-		limit: Limit = NOT_SET
+		limit: int | tuple = NOT_SET
 	) -> list[dict]:
 		"""Select
 
@@ -1222,7 +1233,8 @@ class Table(object):
 							get
 			groupby (str | str[]): Optional, a field or fields to group by
 			orderby (str | str[]): Optional, a field or fields to order by
-			limit (records.Limit): Optional, the limit and starting point
+			limit (int | tuple): Optional, the max (int), or the starting point
+									and max (tuple)
 
 		Returns:
 			dict[]
@@ -1230,8 +1242,8 @@ class Table(object):
 
 		# Generate and run the query, then store the results
 		lRows = server.select(
-			self._update(distinct, fields, where, groupby, orderby, limit),
-			self._struct.host
+			self._select(distinct, fields, where, groupby, orderby, limit),
+			host=self._struct.host
 		)
 
 		# If we have any data to convert in this table
@@ -1254,8 +1266,13 @@ class Table(object):
 						elif [l[1]] == JSON_CONVERT:
 							d[l[0]] = jsonb.decode(d[l[0]])
 
+		# If we only want one record
+		if (isinstance(limit, int) and limit == 1) or \
+			(isinstance(limit, tuple) and limit[1] == 1):
+			return lRows and lRows[0] or None
+
 		# Return the rows
-		return (limit and limit.max == 1) and lRows[0] or lRows
+		return lRows
 
 	def transaction(self) -> transaction.Transaction:
 		"""transaction.Transaction
@@ -1382,5 +1399,4 @@ class Table(object):
 		"""
 
 		# Get the UUID
-		server.uuid(self._struct.host)
-
+		return server.uuid(self._struct.host)

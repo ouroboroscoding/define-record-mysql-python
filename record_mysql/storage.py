@@ -9,18 +9,19 @@ __copyright__	= "Ouroboros Coding Inc."
 __email__		= "chris@ouroboroscoding.com"
 __created__		= "2023-04-01"
 
-# Limit imports
-__all__ = ['Limit', 'Storage']
+# Limit exports
+__all__ = ['Storage']
 
 # Pip imports
 from define import NOT_SET
 from record import Storage as _Storage
-from record.types import Limit
 from tools import merge
 
 # Local imports
 from .data import Data
 from .parent import Parent
+from .leveled import Leveled	# This is necessary only to make sure the class
+								# is added to the registry
 
 class Storage(_Storage):
 	"""Storage
@@ -79,6 +80,15 @@ class Storage(_Storage):
 		# Create a new ID for this record
 		sID = self.uuid()
 
+		# Add it to the value
+		value[self._parent._table._struct.key] = sID
+
+		print(value)
+
+		# Validate the data
+		if not self.valid(value):
+			raise ValueError(self._validation_failures)
+
 		# Take the incoming data, and pass it to the parent to set
 		mData = self._parent.set(sID, value)
 
@@ -112,12 +122,73 @@ class Storage(_Storage):
 		# Return the ID of the new record
 		return sID
 
-	def create(self,
+	def count(self,
+		filter: dict = None
+	) -> int:
+		"""Count
+
+		Returns the count of records, with or without a filter
+
+		Arguments:
+			filter (dict): Optional, data to filter the count of records by
+
+		Returns:
+			int
+		"""
+		return self._parent.count(filter)
+
+	def fetch(self,
+		_id: str | list[str] = None,
+		filter: dict = None,
+		limit: int | tuple | None = None,
+		fields: list[str] = None,
+		raw: bool | list[str] = False,
+		options: dict = None
+	) -> Data | list[Data] | dict | list[dict]:
+		"""Fetch
+
+		Gets one, many, or all records from the storage system associated with
+		the class instance through one or more checks against IDs, filters, and
+		limits. Passing no arguments at all will return every record available
+
+		Arguments:
+			_id: (str | str[]): The ID or IDs used to get the records
+			filter (dict): Data to filter the count of records by
+			limit (int | tuple | None): The limit to set for the fetch
+			fields (str[]): A list of the fields to be returned for each record
+			raw (bool): If true, dicts are returned instead of Data instances
+			options (dict): Custom options processed by the storage system
+
+		Returns:
+			Data | Data[] | dict | dict[]
+		"""
+		pass
+
+	def exists(self,
+		id: str) -> bool:
+		"""Exists
+
+		Returns true if a record with the given ID exists
+
+		Arguments:
+			id (str): The unique ID of the record to check for
+
+		Returns:
+			bool
+		"""
+
+		# Call the table directly
+		return self._parent._table.select(
+			fields = [ '_id' ],
+			where = { '_id': id }
+		) and True or False
+
+	def insert(self,
 		value: dict | list = {},
 		conflict: str = 'error',
 		revisions: dict = None
 	) -> Data | list:
-		"""Create
+		"""Insert
 
 		Creates a new data object associated with the Storage instance
 
@@ -136,30 +207,74 @@ class Storage(_Storage):
 		if not isinstance(value, dict):
 			raise ValueError('value', value)
 
-		# Validate the data
-		if not self.valid(value):
-			raise ValueError(self._validation_failures)
+		# If we have one
+		if isinstance(value, dict):
+			value[self._parent._table._struct.key] = self.add(value, conflict, revisions)
+			return Data(value)
 
-		# If it's ok, add it to the table
-		value[self._struct['key']] = self.add(value, conflict, revisions)
+		# Else, if it's numerous
+		elif isinstance(value, list):
+			l = []
+			for d in value:
+				d[self._parent._table._struct.key] = self.add(d, conflict, revisions)
+				l.append(Data(value))
+			return l
 
-		# Create a new data instance with the value and return it
-		return Data(value)
+	def install(self) -> bool:
+		"""Install
 
-	def count(self,
-		filter: dict = None
-	) -> int:
-		"""Count
+		Installs or creates the location where the records will be stored and
+		retrieved from
 
-		Returns the count of records, with or without a filter
+		Returns:
+			bool
+		"""
+
+		# Call the parent install and return the result
+		return self._parent.install()
+
+	def remove(self, _id: str | list[str] = None, filter: dict = None) -> int:
+		"""Remove
+
+		Removes one or more records from storage by ID or filter, and returns
+		the count of records removed
 
 		Arguments:
-			filter (dict): Optional, data to filter the count of records by
+			_id (str): The ID(s) to remove
+			filter (dict): Data to filter what gets deleted
 
 		Returns:
 			int
 		"""
-		return self._parent.count(filter)
+		pass
+
+	def revision_add(cls, _id: str, changes: dict) -> bool:
+		"""Revision Add
+
+		Adds data to the storage system associated with the record that
+		indicates the changes since the previous add/save
+
+		Arguments:
+			_id (str): The ID of the record the change is associated with
+			changes (dict): The dictionary of changes to add
+
+		Returns:
+			bool
+		"""
+		pass
+
+	def uninstall(self) -> bool:
+		"""Uninstall
+
+		Uninstalls or deletes the location where the records will be stored and
+		retrieved from
+
+		Returns:
+			bool
+		"""
+
+		# Call the parent uninstall and return the result
+		return self._parent.uninstall()
 
 	def uuid(self) -> str:
 		"""UUID
@@ -173,4 +288,4 @@ class Storage(_Storage):
 		Returns:
 			str
 		"""
-		return self._table.uuid()
+		return self._parent._table.uuid()

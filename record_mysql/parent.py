@@ -58,7 +58,7 @@ class Parent(Base):
 		for f in details:
 
 			# Get the class name
-			sClass = details[f].class_name
+			sClass = details[f].class_name()
 
 			# If it's a Node
 			if sClass == 'Node':
@@ -69,19 +69,29 @@ class Parent(Base):
 			# Else, it's a complex type
 			else:
 
-				# Try to create it and store it under its name
-				self._complex[f] = self.create_type(
-					sClass,
-					f,
-					self,
-					details[f]
-				)
+				# Store it for later
+				self._complex[f] = sClass
 
 		# If we have any columns
 		if self._columns:
 
 			# Add the ID to the keys
 			self._keys['_id'] = define.Node({ '__type__': 'uuid' })
+
+			# Init the base structure
+			dStruct = jobject({
+				'auto_key': False,
+				'create': [
+					*self._keys.keys(),
+					*self._columns.keys()
+				],
+				'db': 'test',
+				'host': '_',
+				'indexes': [],
+				'key': '_id',
+				'revisions': False,
+				'name': name
+			})
 
 			# Get the __mysql__ section
 			dMySQL = details.special('mysql')
@@ -92,39 +102,35 @@ class Parent(Base):
 				# Get its structure
 				dParent = self._parent.struct()
 
-				# Init the structure
-				dStruct = jobject({
-					'auto_key': False,
-					'create': [
-						*self._keys.keys(),
-						*self._columns.keys()
-					],
-					'db': dParent.db,
-					'host': dParent.host,
-					'indexes': [],
-					'key': '_id',
-					'revisions': False,
-					'name': '%s_%s' % (dParent.name, name)
-				})
+				# Update the base data
+				dStruct.db = dParent.db
+				dStruct.host = dParent.host
+				dStruct.name = '%s_%s' % (dParent.name, name)
 
-				# If there's a special section, overwrite any values it has
-				#	with the created ones
-				if dMySQL:
-					merge(dStruct, dMySQL)
+			# If there's a special section, overwrite any values it has
+			#	with the created ones
+			if dMySQL:
+				merge(dStruct, dMySQL)
 
-				# Create a new columns with the ID
-				dColumns = {**self._keys, **self._columns}
-
-			# Else, no parent, use config and columns as is
-			else:
-				dStruct = dMySQL
-				dColumns = self._columns
+			# Create a new columns with the ID
+			dColumns = {**self._keys, **self._columns}
 
 			# Create a table for them using the generate structure and the list
 			#	of columns
 			self._table = Table(
 				dStruct,
 				dColumns
+			)
+
+		# Go through the complex types
+		for f in self._complex:
+
+			# Try to create it and store it under its name
+			self._complex[f] = self.create_type(
+				self._complex[f],
+				f,
+				self,
+				details[f]
 			)
 
 	def _get_ids(self, ids: list[str]) -> list[str]:
@@ -147,7 +153,7 @@ class Parent(Base):
 
 	def delete(self,
 		_id: str,
-		ta: Transaction
+		ta: Transaction = None
 	) -> list | dict | None:
 		"""Delete
 
@@ -273,7 +279,7 @@ class Parent(Base):
 	def set(self,
 		id: str,
 		data: dict,
-		ta: Transaction
+		ta: Transaction | None = None
 	) -> dict | list | None:
 		"""Set
 
@@ -319,7 +325,7 @@ class Parent(Base):
 			dOldData = self._table.select(
 				fields = self._columns.keys(),
 				where = { '_id': id },
-				limit = (1,)
+				limit = 1
 			)
 
 			# If it exists
@@ -336,7 +342,7 @@ class Parent(Base):
 				# Create a new record from the data using the passed ID
 				lTA.insert({
 					**{ '_id': id },
-					**without(data, self._keys.keys())
+					**without(data, list(self._keys.keys()))
 				})
 
 		# Go through each complex field
@@ -370,7 +376,7 @@ class Parent(Base):
 	def update(self,
 		id: str,
 		data: dict,
-		ta: Transaction
+		ta: Transaction = None
 	) -> dict | None:
 		"""Update
 
@@ -484,5 +490,5 @@ class Parent(Base):
 		# Return success or failure
 		return mRet
 
-# Add the Parent type to the base
-Base.add_type('Parent')
+# Add the Parent type to the base types as 'Parent'
+Parent.add_type('Parent')

@@ -10,7 +10,10 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2023-04-01"
 
 # Limit imports
-#__all__ = []
+__all__ = [
+	'add_host', 'db_create', 'db_drop', 'escape', 'execute', 'insert', 'select',
+	'timestamp_timezone', 'verbose', 'uuid'
+]
 
 # Python imports
 from enum import IntEnum
@@ -31,7 +34,7 @@ __connections = {}
 __timestamp_timezone = '+00:00'
 
 # Verbose mode
-__verbose = False
+__verbose = True
 
 # defines
 MAX_RETRIES = 3
@@ -110,7 +113,7 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 		oCon = pymysql.connect(**__hosts[host])
 
 		# Turn autocommit on
-		oCon.autocommit(True)
+		oCon.autocommit(False)
 
 		# Change conversions
 		conv = oCon.decoders.copy()
@@ -179,6 +182,9 @@ def _cursor(host: str, dict_cur: bool = False):
 	# Get a connection to the host
 	oCon = _connection(host)
 
+	# Start the transaction
+	oCon.begin()
+
 	# Try to get a cursor on the connection
 	try:
 		if dict_cur:
@@ -196,8 +202,8 @@ def _cursor(host: str, dict_cur: bool = False):
 		_clear_connection(host)
 		return _cursor(host, dict_cur)
 
-	# Return the cursor
-	return oCursor
+	# Return the connection and cursor
+	return [oCon, oCursor]
 
 def _print_sql(sql: str, type: str, host: str = '_'):
 	"""Print SQL
@@ -229,14 +235,16 @@ class _wcursor(object):
 	"""
 
 	def __init__(self, host: str, dict_cur: bool = False):
-		self.cursor = _cursor(host, dict_cur);
+		self.con, self.cursor = _cursor(host, dict_cur)
 
 	def __enter__(self):
 		return self.cursor
 
 	def __exit__(self, exc_type, exc_value, traceback):
 		self.cursor.close()
-		if exc_type is not None:
+		if exc_type is None:
+			self.con.commit()
+		else:
 			return False
 
 def add_host(info: dict, name: str = '_', update: bool = False) -> bool:
@@ -356,7 +364,7 @@ def escape(value: str, host: str = '_'):
 	# Return the escaped string
 	return sRet
 
-def execute(sql: str, host: str = '_', errcnt: int = 0) -> int:
+def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 	"""Execute
 
 	Used to run SQL that doesn't return any rows
@@ -377,12 +385,16 @@ def execute(sql: str, host: str = '_', errcnt: int = 0) -> int:
 
 		try:
 
-			# If the sql arg is a tuple we've been passed a string with a list for the purposes
-			#	of replacing parameters
-			if isinstance(sql, tuple):
-				iRet = oCursor.execute(sql[0], sql[1])
-			else:
-				iRet = oCursor.execute(sql)
+			# If we got a str
+			if isinstance(sql, str):
+				return oCursor.execute(sql)
+
+			# Init the return
+			iRet = 0
+
+			# Go through each statment and execute it
+			for s in sql:
+				iRet += oCursor.execute(s)
 
 			# Return the changed rows
 			return iRet

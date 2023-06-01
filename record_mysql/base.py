@@ -238,12 +238,14 @@ class Base(ABC):
 		"""
 		pass
 
-	def install(self):
+	def install(self) -> bool:
 		"""Install
 
-		Create the associated table if there is one, then ask each complex child
-		to create its own tables
+		Create the associated table if there is one, then asks each complex
+		child to create its own tables
 
+		Returns:
+			bool
 		"""
 
 		# Assume eventual success
@@ -301,7 +303,9 @@ class Base(ABC):
 			return copy(self._table._struct)
 
 		# If we have no table
-		except AttributeError:
+		except AttributeError as e:
+			print(dir(self))
+			print(e)
 
 			# Return the structure of the parent
 			try:
@@ -312,6 +316,34 @@ class Base(ABC):
 
 				# Return an empty dict
 				return jobject({})
+
+	def uninstall(self) -> bool:
+		"""Uninstall
+
+		Drops the associated table if there is one, then asks each complex child
+		to drop its own tables
+
+		Returns:
+			bool
+		"""
+
+		# Assume eventual success
+		bRes = True
+
+		# If there's an associated table
+		if self._table:
+			if not self._table.drop():
+				bRes = False
+
+		# Go through each complex type
+		for f in self._complex:
+
+			# And call its install method
+			if not self._complex[f].uninstall():
+				bRes = False
+
+		# Return the overall result
+		return bRes
 
 	@abstractmethod
 	def update(self,
