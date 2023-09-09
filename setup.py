@@ -27,7 +27,8 @@ setup(
 		"jobject>=1.0.0,<1.1",
 		"jsonb>=1.0.0,<1.1",
 		"PyMySQL>=1.0.2,<1.1",
-		"record-oc>=1.0.0,<1.1"
+		"record-oc>=1.0.0,<1.1",
+		"undefined-oc>=1.0.0,<1.1"
 	],
 	test_suite='tests',
 	zip_safe=True

@@ -1,7 +1,7 @@
 # coding=utf8
 """Record Leveled
 
-Handles a structure which contains a list or hash of other nodes, including
+Handles a structure which contains a list or hash of other nodes, including \
 other complex types
 """
 
@@ -13,18 +13,18 @@ __created__		= "2023-04-04"
 # Limit exports
 __all__ = ['Leveled']
 
-# Python imports
-from copy import copy
-
-# Pip imports
+# Ouroboros imports
 import define
 from jobject import jobject
 from tools import combine, compare, lfindi, merge, without
 
+# Python imports
+from copy import copy
+
 # Local imports
-from .base import Base
-from .table import Table
-from .transaction import Transaction
+from record_mysql.base import Base
+from record_mysql.table import Table
+from record_mysql.transaction import Transaction
 
 class Leveled(Base):
 	"""Leveled
@@ -68,7 +68,7 @@ class Leveled(Base):
 		self._node: bool = False
 
 		# Add the key fields to the columns
-		self._keys['_id'] = define.Node({ '__type__': 'uuid'})
+		self._keys[parent._table._struct.key] = define.Node({ '__type__': 'uuid'})
 		self._keys['_parent'] = define.Node({ '__type__': 'uuid' })
 
 		# Init the number of levels and the first key based on whether we have
@@ -104,7 +104,7 @@ class Leveled(Base):
 				self._node = True
 
 				# Remove the ID key, we won't be updating individual rows
-				del self._keys['_id']
+				del self._keys[parent._table._struct.key]
 
 				# We only have one column, the child
 				self._columns['_value'] = oChild
@@ -147,7 +147,7 @@ class Leveled(Base):
 
 			# Else
 			raise ValueError(
-				'record_mysql does not implement define.%s' % sClass
+				'record_mysql does not implement define.%s' % sChild
 			)
 
 		# Get the parent structure
@@ -167,7 +167,7 @@ class Leveled(Base):
 				'fields': ['_parent', *self._levels],
 				'type': 'unique'
 			}],
-			'key': (self._node == False) and '_id' or False,
+			'key': (self._node == False) and self._table._struct.key or False,
 			'revisions': False,
 			'name': '%s_%s' % (dParent.name, name)
 		})
@@ -176,6 +176,16 @@ class Leveled(Base):
 		#	with the created ones
 		dMySQL = details.special('mysql')
 		if dMySQL:
+
+			# If there's any additional indexes
+			if 'indexes' in dMySQL:
+
+				# Remove them and use them to extend the main struct
+				dStruct.indexes.extend(
+					dMySQL.pop('indexes')
+				)
+
+			# Merge whatever remains
 			merge(dStruct, dMySQL)
 
 		# Create a new columns with the ID
@@ -193,8 +203,8 @@ class Leveled(Base):
 	) -> list[any] | dict[str, any]:
 		"""Elevate
 
-		Opposite of Flatten, goes through table rows and recursively turns them
-		into arrays of arrays and hashes of hashes
+		Opposite of Flatten, goes through table rows and recursively turns \
+		them into arrays of arrays and hashes of hashes
 
 		Arguments:
 			rows (dict[]): The rows to loop through
@@ -245,7 +255,7 @@ class Leveled(Base):
 				if self._node:
 
 					# Get rid of the last list and dict
-					lRet = lRet[0]['_value']
+					lRet = [l[0]['_value'] for l in lRet]
 
 				# Else, just get rid of the last list
 				else:
@@ -254,10 +264,10 @@ class Leveled(Base):
 			# Else, we have more levels to go
 			else:
 
-				# Go through each one of the current return values to process the
-				#	next level
+				# Go through each one of the current return values to process
+				#	the next level
 				for i in range(len(lRet)):
-					lRet[i] = self._arrays_of_arrays(lRet[i], level + 1)
+					lRet[i] = self._elevate(lRet[i], level + 1)
 
 			# Return the list
 			return lRet
@@ -296,7 +306,7 @@ class Leveled(Base):
 
 				# Go through each of the current keys and process the next level
 				for k in dRet:
-					dRet[k] = self._arrays_of_arrays(dRet[k], level + 1)
+					dRet[k] = self._elevate(dRet[k], level + 1)
 
 			# Return the dict
 			return dRet
@@ -311,8 +321,8 @@ class Leveled(Base):
 	) -> list:
 		"""Flatten
 
-		Opposite of Elevate, takes a complex structure and flattens it into a
-		set of fields describing the data's levels based on the current
+		Opposite of Elevate, takes a complex structure and flattens it into a \
+		set of fields describing the data's levels based on the current \
 		structure
 
 		Arguments:
@@ -324,7 +334,6 @@ class Leveled(Base):
 
 		# Get the current field
 		field = self._levels[level]
-
 
 		# Init the return
 		lRet = []
@@ -402,8 +411,8 @@ class Leveled(Base):
 					# Add a new column for the level
 					dRow[field] = k
 
-					# Pass it down the line and extend the return with whatever we
-					#	get back
+					# Pass it down the line and extend the return with whatever
+					#	we get back
 					lRet.extend(
 						self._flatten(data[k], level + 1, dRow)
 					)
@@ -433,7 +442,7 @@ class Leveled(Base):
 				self._table.select(
 					distinct = True,
 					fields = ['_parent'],
-					where = { '_id': ids }
+					where = { self._table._struct.key: ids }
 				)
 			]
 
@@ -451,13 +460,13 @@ class Leveled(Base):
 	) -> list | dict | None:
 		"""Delete
 
-		Deletes one or more rows associated with the given ID and returns what
+		Deletes one or more rows associated with the given ID and returns what \
 		was deleted
 
 		Arguments:
 			_id (str): The unique ID associated with rows to be deleted
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			list | None
@@ -476,14 +485,17 @@ class Leveled(Base):
 		if lOldData:
 
 			# Delete them
-			lTA.delete(where = { '_id': [d['_id'] for d in lOldData] })
+			lTA.delete(where = { '_parent': _id })
 
 			# Go through each complex field
 			for f in self._complex:
 
 				# Go through each old row
 				for i in range(len(lOldData)):
-					mRet = self._complex[f].delete(lOldData[i]['_id'], lTA)
+					mRet = self._complex[f].delete(
+						lOldData[i][self._table._struct.key],
+						lTA
+					)
 					if mRet:
 						lOldData[i][f] = mRet
 
@@ -501,7 +513,7 @@ class Leveled(Base):
 		# If we have old data
 		if lOldData:
 			lOldData = self._elevate(
-				without(lOldData, ['_id', '_parent'])
+				without(lOldData, [self._table._struct.key, '_parent'])
 			)
 
 		# Return the data
@@ -534,21 +546,21 @@ class Leveled(Base):
 		# Get the parent's IDs or return them as is
 		return self._parent and self._parent.get_ids(lIDs) or lIDs
 
-	def get(self, id: str) -> list[dict]:
+	def get(self, _id: str) -> list[dict]:
 		"""Get
 
 		Retrieves all the rows associated with the given ID
 
 		Arguments:
-			id (str): The ID to fetch rows for
+			_id (str): The ID to fetch rows for
 
 		Returns:
 			dict[]
 		"""
 
 		# Find the records ordered by the levels and store them by unique ID
-		dRows = {d['_id']:d for d in self._table.select(
-			where = { '_parent': id },
+		dRows = {d[self._table._struct.key]:d for d in self._table.select(
+			where = { '_parent': _id },
 			orderby = self._levels
 		)}
 
@@ -568,21 +580,21 @@ class Leveled(Base):
 		)
 
 	def set(self,
-		id: str,
+		_id: str,
 		data: dict,
 		ta: Transaction | None = None
 	) -> dict | list | None:
 		"""Set
 
-		Sets the rows associated with the given ID and returns the previous rows
-		that were overwritten if there's any changes
+		Sets the rows associated with the given ID and returns the previous \
+		rows that were overwritten if there's any changes
 
 		Arguments:
-			id (str): The ID of the parent
-			data (dict): A dict representing a structure of data to be set
-							under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			_id (str): The ID of the parent
+			data (dict): A dict representing a structure of data to be set \
+				under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			list | None
@@ -593,7 +605,7 @@ class Leveled(Base):
 
 		# See if we have any existing rows
 		lOldData = self._table.select(
-			where = { '_parent': id },
+			where = { '_parent': _id },
 			orderby = self._levels
 		)
 
@@ -601,7 +613,7 @@ class Leveled(Base):
 		if lOldData:
 
 			# Delete the existing data
-			lTA.delete( where = { '_parent': id })
+			lTA.delete( where = { '_parent': _id })
 
 			# Go through each complex field
 			for f in self._complex:
@@ -610,7 +622,9 @@ class Leveled(Base):
 				for i in range(len(lOldData)):
 
 					# Delete the rows associated
-					mRet = self._complex[f].delete(lOldData[i]['_id'])
+					mRet = self._complex[f].delete(
+						lOldData[i][self._table._struct.key]
+					)
 					if mRet:
 						lOldData[i][f] = mRet
 
@@ -626,7 +640,7 @@ class Leveled(Base):
 			# Create a new row with a new ID, the parent, and all the local
 			#	columns that were passed in
 			dRow = {
-				'_id': self._table.uuid(),
+				self._table._struct.key: self._table.uuid(),
 				'_parent': id,
 				**{ k: d[k] for k in self._keys if k in d },
 				**{ k: d[k] for k in self._columns if k in d }
@@ -642,7 +656,11 @@ class Leveled(Base):
 				if f in d:
 
 					# Set any records
-					self._complex[f].set(dRow['_id'], d[f], lTA)
+					self._complex[f].set(
+						dRow[self._table._struct.key],
+						d[f],
+						lTA
+					)
 
 		# If we have a transaction passed in, extend it with ours
 		if ta:
@@ -665,15 +683,15 @@ class Leveled(Base):
 	) -> list | None:
 		"""Update
 
-		Updates the rows associated with the given ID and returns the previous
+		Updates the rows associated with the given ID and returns the previous \
 		ows that were overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID to update records for
-			data (list | dict): A list or dict representing a structure of data
-									to be updated under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			data (list | dict): A list or dict representing a structure of \
+				data to be updated under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			list | None
@@ -728,20 +746,25 @@ class Leveled(Base):
 			for i in range(len(lOldData)):
 
 				# If there's no corresponding record in the data
-				if not next(o for o in data if d['_id'] == lOldData[i]['_id']):
+				if not next(o for o in data \
+							if d[self._table._struct.key] == lOldData[i][self._table._struct.key]
+				):
 
 					# Store the ID
-					lToDelete.append(lOldData[i]['_id'])
+					lToDelete.append(lOldData[i][self._table._struct.key])
 
 					# Go through each complex field
 					for f in self._complex:
-						mTemp = self._complex[f].delete(lOldData[i]['_id'], lTA)
+						mTemp = self._complex[f].delete(
+							lOldData[i][self._table._struct.key],
+							lTA
+						)
 						if mTemp:
 							lOldData[i][f] = mTemp
 
 			# If there's any to delete
 			if lToDelete:
-				self._table.delete({ '_id': lToDelete })
+				self._table.delete({ self._table._struct.key: lToDelete })
 
 			# Init the list of IDs with array swaps
 			lSwapIDs = set()
@@ -752,8 +775,12 @@ class Leveled(Base):
 
 				# Find the index of the old data
 				i = -1
-				if '_id' in d:
-					i = lfindi(lOldData, '_id', d['_id'])
+				if self._table._struct.key in d:
+					i = lfindi(
+						lOldData,
+						self._table._struct.key,
+						d[self._table._struct.key]
+					)
 
 				# If it has a valid ID
 				if i > -1:
@@ -774,7 +801,7 @@ class Leveled(Base):
 								# Store the value as it's opposite and store the
 								# ID so we know to fix it later
 								dUpdate[s] = -d[s]
-								lSwapIDs.add(d['_id'])
+								lSwapIDs.add(d[self._table._struct.key])
 								lSwapFields.add(s)
 
 						# Else, if it's a hash
@@ -806,14 +833,16 @@ class Leveled(Base):
 					if dUpdate:
 
 						# Add it to the transaction
-						lTA.update(dUpdate, { '_id': d['_id'] })
+						lTA.update(dUpdate, {
+							self._table._struct.key: d[self._table._struct.key]
+						})
 
 					# Go through each complex
 					for f in self._complex:
 
 						# Try to update the data
 						mTemp = self._complex[f].update(
-							d['_id'],
+							d[self._table._struct.key],
 							d[f],
 							lTA
 						)
@@ -825,7 +854,7 @@ class Leveled(Base):
 				else:
 
 					# Generate a unique ID and set it
-					d['_id'] = self._table.uuid()
+					d[self._table._struct.key] = self._table.uuid()
 
 					# Add the parent
 					d['_parent'] = id
@@ -850,7 +879,7 @@ class Leveled(Base):
 			#	returning it
 			if lOldData:
 				lOldData = self._elevate(
-					without(lOldData, ['_id', '_parent'])
+					without(lOldData, [self._table._struct.key, '_parent'])
 				)
 
 		# Return the old data

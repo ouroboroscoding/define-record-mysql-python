@@ -13,18 +13,19 @@ __created__		= "2023-04-01"
 # Limit exports
 __all__ = ['escape', 'Table']
 
+# Ouroboros imports
+from define import Node
+from jobject import jobject
+import jsonb
+from tools import merge
+import undefined
+
 # Python imports
 from typing import Literal as LT
 import re
 
-# Pip imports
-from define import Node, NOT_SET
-from jobject import jobject
-import jsonb
-from tools import merge
-
 # Local imports
-from . import server, transaction
+from record_mysql import server, transaction
 
 _node_to_sql = {
 	'any': False,
@@ -112,7 +113,7 @@ def _node_to_type(node: Node, host: str) -> str:
 				if dMinMax['maximum'] is None:
 					raise ValueError(
 						'"string" nodes must have a __maximum__ value if ' \
-						'__sql__.type is not set in Record_MySQL'
+						'__sql__.type is not set'
 					)
 
 				# If the minimum matches the maximum
@@ -263,7 +264,7 @@ class Literal(object):
 class Table(object):
 	"""Table
 
-	Represents a single SQL table and interacts with raw data in the form of
+	Represents a single SQL table and interacts with raw data in the form of \
 	python dictionaries
 	"""
 
@@ -273,8 +274,8 @@ class Table(object):
 		Creates a new instance
 
 		Arguments:
-			struct (dict): Configuration details for building and accessing the
-							table
+			struct (dict): Configuration details for building and accessing \
+							the table
 			columns (dict): The definitions for each column of the table
 
 		Returns:
@@ -320,7 +321,9 @@ class Table(object):
 				# If it's not marked as JSON
 				dMySQL = self._columns[f].special('mysql', default={})
 				if 'json' not in dMySQL or not dMySQL['json']:
-					raise ValueError('record_mysql.table.%s must be flagged as JSON')
+					raise ValueError(
+						'record_mysql.table.%s must be flagged as JSON'
+					)
 
 				# Add it to the json list
 				self._convert.append([f, JSON_CONVERT])
@@ -337,9 +340,6 @@ class Table(object):
 			bool
 		"""
 
-		print('---------------------------------------')
-		print('Create called for %s' % self._struct.name)
-
 		# If the 'create' value is missing
 		if 'create' not in self._struct:
 
@@ -349,11 +349,9 @@ class Table(object):
 			# Order them alphabetically
 			self._struct.create.sort()
 
-		# If the primary key is added, remove it
-		if self._struct.key in self._struct.create:
-			self._struct.create.remove(self._struct.key)
-
-		print('Create: %s' % self._struct.create)
+		# Remove the primary key if it's in the 'create' list
+		try: self._struct.create.remove(self._struct.key)
+		except ValueError: pass
 
 		# Get all child node keys
 		lNodeKeys = self._columns.keys()
@@ -362,8 +360,6 @@ class Table(object):
 			if s not in self._struct.create and \
 				s != self._struct.key
 		]
-
-		print('Node Keys: %s' % lNodeKeys)
 
 		# If any are missing
 		if lMissing:
@@ -415,7 +411,9 @@ class Table(object):
 
 			# Push the primary key to the front
 			#	Get the sql special data
-			dMySQL = self._columns[self._struct.key].special('mysql', default={})
+			dMySQL = self._columns[self._struct.key].special(
+				'mysql', {}
+			)
 
 			# If it's a string, store the value under 'type' in a new dict
 			if isinstance(dMySQL, str):
@@ -440,11 +438,6 @@ class Table(object):
 
 			# Init the list of indexes
 			lIndexes = ['primary key (`%s`)' % self._struct.key]
-
-		else:
-			lIndexes = []
-
-		print('Fields: %s' % lFields)
 
 		# If there are indexes
 		if self._struct.indexes:
@@ -485,10 +478,17 @@ class Table(object):
 
 						# If it's not a list
 						if not isinstance(mi.fields, list):
-							raise ValueError(
-								'record_mysql.table.struct.indexes[].fields ' \
-								'must be a list'
-							)
+
+							# If it's a string
+							if isinstance(mi.fields, str):
+								mi.fields = [ mi.fields ]
+
+							# Else, invalid
+							else:
+								raise ValueError(
+									'record_mysql.table.struct.indexes[].' \
+									'fields must be a list or string'
+								)
 
 						# Init the list of index fields
 						lIndexFields = []
@@ -614,7 +614,7 @@ class Table(object):
 		server.execute(sSQL, self._struct.host)
 
 		# If revisions are required
-		if self._struct.key and self._struct.revisions:
+		if self._struct.revisions:
 
 			# Generate the CREATE statement
 			sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s_revisions` (' \
@@ -628,7 +628,8 @@ class Table(object):
 				self._struct.key,
 				sIDType,
 				sIDOpts,
-				self._struct.key, self._struct.key,
+				self._struct.key,
+				self._struct.key,
 				'engine' in self._struct and \
 					self._struct.engine or 'InnoDB',
 				'charset' in self._struct and \
@@ -643,7 +644,7 @@ class Table(object):
 		# Return OK
 		return True
 
-	def _delete(self, where: dict = NOT_SET) -> str:
+	def _delete(self, where: dict = undefined) -> str:
 		"""_delete
 
 		Generates the actual DELETE SQL
@@ -656,7 +657,7 @@ class Table(object):
 		sWhere = None
 
 		# If there's an additional where
-		if where is not NOT_SET:
+		if where is not undefined:
 
 			# Init the list of WHERE statements
 			lWhere = []
@@ -687,14 +688,14 @@ class Table(object):
 			sWhere or ''
 		)
 
-	def delete(self, where: dict = NOT_SET) -> int:
+	def delete(self, where: dict = undefined) -> int:
 		"""Delete
 
 		Deletes all or some records
 
 		Arguments:
-			where (dict): Optional, field/value pairs to decide what records get
-							deleted
+			where (dict): Optional, field/value pairs to decide what records \
+				get deleted
 
 		Returns:
 			uint: number of records deleted
@@ -1036,18 +1037,18 @@ class Table(object):
 		# Return the processed value
 		return sRet
 
-	def revision_add(self, key: any, items: dict):
+	def revision_add(self, key: any, items: dict) -> str:
 		"""Revision Add
 
-		Called to add a record to the revision table associated with this
-		instance
+		Called to generate the code to add a record to the revision table \
+		associated with this instance
 
 		Arguments:
 			key (any): The key to store the items under
 			items (dict): The items to add to the revision table
 
 		Returns:
-			None
+			str
 		"""
 
 		# If changes are not allowed
@@ -1064,8 +1065,8 @@ class Table(object):
 						'record_mysql.table.revision_add.items missing "%s"' % s
 					)
 
-		# Generate the INSERT statement
-		sSQL = 'INSERT INTO `%s`.`%s_revisions` (`%s`, `created`, `items`) ' \
+		# Generate and return the INSERT statement
+		return 'INSERT INTO `%s`.`%s_revisions` (`%s`, `created`, `items`) ' \
 				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 					self._struct.db,
 					self._struct.name,
@@ -1081,16 +1082,13 @@ class Table(object):
 					)
 				)
 
-		# Create the revisions record and return the records inserted
-		server.execute(sSQL, self._struct.host)
-
 	def _select(self,
-		distinct: bool = NOT_SET,
-		fields: list[str] = NOT_SET,
-		where: dict = NOT_SET,
-		groupby: str | list[str] = NOT_SET,
-		orderby: str | list[str] = NOT_SET,
-		limit: int | tuple = NOT_SET
+		distinct: bool = undefined,
+		fields: list[str] = undefined,
+		where: dict = undefined,
+		groupby: str | list[str] = undefined,
+		orderby: str | list[str] = undefined,
+		limit: int | tuple = undefined
 	) -> str:
 		"""_select
 
@@ -1103,9 +1101,9 @@ class Table(object):
 		# Init the statements list with the SELECT
 		lStatements = [
 			'SELECT %s%s\n' \
-			'FROM `%s`.`%s`\n' % (
+			'FROM `%s`.`%s`' % (
 				distinct and 'DISTINCT ' or '',
-				fields is NOT_SET and '*' or ','.join([
+				fields is undefined and '*' or ','.join([
 					(isinstance(f, Func) and \
 						str(f) or \
 						('`%s`' % f)
@@ -1117,7 +1115,7 @@ class Table(object):
 		]
 
 		# If there's where pairs
-		if where is not NOT_SET:
+		if where is not undefined:
 
 			# Init list of WHERE
 			lWhere = []
@@ -1143,7 +1141,7 @@ class Table(object):
 			)
 
 		# If there's anything to group by
-		if groupby is not NOT_SET:
+		if groupby is not undefined:
 
 			# If it's a string
 			if isinstance(groupby, str):
@@ -1166,7 +1164,7 @@ class Table(object):
 				raise ValueError('groupby', groupby)
 
 		# If there's anything to order by
-		if orderby is not NOT_SET:
+		if orderby is not undefined:
 
 			# If it's a string
 			if isinstance(orderby, str):
@@ -1197,7 +1195,7 @@ class Table(object):
 				raise ValueError('orderby', orderby)
 
 		# If there's anything to limit by
-		if limit is not NOT_SET:
+		if limit is not undefined:
 
 			# If we got an int
 			if isinstance(limit, int):
@@ -1209,18 +1207,21 @@ class Table(object):
 
 			# Else
 			else:
-				raise ValueError('record-mysql.table limit must be an int or a tuple, received: %s' % type(limit))
+				raise ValueError(
+					'record-mysql.table limit must be an int or a tuple, ' \
+					'received: %s' % type(limit)
+				)
 
 		# Generate and return the SQL from the statements
 		return '\n'.join(lStatements)
 
 	def select(self,
-		distinct: bool = NOT_SET,
-		fields: list[str] = NOT_SET,
-		where: dict = NOT_SET,
-		groupby: str | list[str] = NOT_SET,
-		orderby: str | list[str] = NOT_SET,
-		limit: int | tuple = NOT_SET
+		distinct: bool = undefined,
+		fields: list[str] = undefined,
+		where: dict = undefined,
+		groupby: str | list[str] = undefined,
+		orderby: str | list[str] = undefined,
+		limit: int | tuple = undefined
 	) -> list[dict]:
 		"""Select
 
@@ -1228,13 +1229,14 @@ class Table(object):
 
 		Arguments:
 			distinct (bool): Optional, True to only return distinct records
-			fields (str[]): Optional, the list of fields to return from the table
-			where (dict): Optional, field/value pairs to decide what records to
-							get
+			fields (str[]): Optional, the list of fields to return from the \
+				table
+			where (dict): Optional, field/value pairs to decide what records \
+				to get
 			groupby (str | str[]): Optional, a field or fields to group by
 			orderby (str | str[]): Optional, a field or fields to order by
-			limit (int | tuple): Optional, the max (int), or the starting point
-									and max (tuple)
+			limit (int | tuple): Optional, the max (int), or the starting \
+				point and max (tuple)
 
 		Returns:
 			dict[]
@@ -1277,7 +1279,8 @@ class Table(object):
 	def transaction(self) -> transaction.Transaction:
 		"""transaction.Transaction
 
-		Returns a new transaction.Transaction object associated with the instance
+		Returns a new transaction.Transaction object associated with the \
+		instance
 
 		Returns:
 			transaction.Transaction
@@ -1324,7 +1327,7 @@ class Table(object):
 			# Escape the value using the node
 			lSet.append('`%s` = %s' % (
 				f, escape(
-					self.get(f),
+					self._columns[f],
 					values[f],
 					self._struct.host
 				)
@@ -1368,13 +1371,13 @@ class Table(object):
 	) -> int:
 		"""Update
 
-		Updates a specific field to the value for an ID, many IDs, or the entire
-		table
+		Updates a specific field to the value for an ID, many IDs, or the \
+		entire table
 
 		Arguments:
 			values (dict): The dictionary of fields to values to be updated
-			where (dict): Optional, field/value pairs to decide what records get
-							updated
+			where (dict): Optional, field/value pairs to decide what records \
+				get updated
 			conflict (str): Must be one of 'error', 'ignore'
 
 		Returns:

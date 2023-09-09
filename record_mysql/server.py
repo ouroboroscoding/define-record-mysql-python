@@ -75,7 +75,7 @@ def _clear_connection(host: str) -> None:
 
 		# Catch any exception
 		except Exception as e:
-			print('\n------------------------------------------------------------')
+			print('\n----------------------------------------')
 			print('Unknown exception in record_mysql.server._clear_connection')
 			print('host = %s' % str(host))
 			print('exception = %s' % str(e.__class__.__name__))
@@ -230,7 +230,7 @@ def _print_sql(sql: str, type: str, host: str = '_'):
 class _wcursor(object):
 	"""_with
 
-	Used with the special Python with method to create a connection that will
+	Used with the special Python with method to create a connection that will \
 	always be closed regardless of exceptions
 	"""
 
@@ -250,8 +250,8 @@ class _wcursor(object):
 def add_host(info: dict, name: str = '_', update: bool = False) -> bool:
 	"""Add Host
 
-	Add a host that can be used by Records. By default, add_host ignores any
-	requests to add a host that's already been added. To intentionally set new
+	Add a host that can be used by Records. By default, add_host ignores any \
+	requests to add a host that's already been added. To intentionally set new \
 	data for an existing host, set the `update` parameter to True
 
 	Arguments:
@@ -279,7 +279,12 @@ def add_host(info: dict, name: str = '_', update: bool = False) -> bool:
 	# Nothing to do, not OK
 	return False
 
-def db_create(name, host: str = '_', charset: str = None, collate: str = None):
+def db_create(
+	name: str,
+	host: str = '_',
+	charset: str = None,
+	collate: str = None
+):
 	"""DB Create
 
 	Creates a DB on the given host
@@ -319,7 +324,7 @@ def db_drop(name: str, host: str = '_'):
 	"""
 
 	# Delete the DB
-	execute(host, "DROP DATABASE IF EXISTS `%s`" % name)
+	execute("DROP DATABASE IF EXISTS `%s`" % name, host)
 	return True
 
 def escape(value: str, host: str = '_'):
@@ -351,7 +356,7 @@ def escape(value: str, host: str = '_'):
 		return escape(value, host)
 
 	except Exception as e:
-		print('\n------------------------------------------------------------')
+		print('\n----------------------------------------')
 		print('Unknown Error in record_mysql.server.escape')
 		print('host = %s' % host)
 		print('value = %s' % str(value))
@@ -402,8 +407,13 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 		# If the SQL is bad
 		except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
 
-			# Raise an SQL Exception
-			raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+			# Raise a Value Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]), str(e.args[1]), str(sql)
+				)
+			)
 
 		# Else, a duplicate key error
 		except pymysql.err.IntegrityError as e:
@@ -421,7 +431,12 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 
 			# If the error code is one that won't change
 			if e.args[0] in [1051, 1054, 1136]:
-				raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+				raise ValueError(
+					e.args[0],
+					'SQL error (%s): %s\n%s' % (
+						str(e.args[0]), str(e.args[1]), str(sql)
+					)
+				)
 
 			# Increment the error count
 			errcnt += 1
@@ -436,7 +451,7 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 
 		# Else, catch any Exception
 		except Exception as e:
-			print('\n------------------------------------------------------------')
+			print('\n----------------------------------------')
 			print('Unknown Error in record_mysql.server.execute')
 			print('host = %s' % host)
 			print('sql = %s' % str(sql))
@@ -449,7 +464,7 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 def insert(sql: str, host: str = '_', errcnt: int = 0):
 	"""Insert
 
-	Handles INSERT statements and returns the new ID. To insert records
+	Handles INSERT statements and returns the new ID. To insert records \
 	without auto_increment it's best to just stick to execute()
 
 	Args:
@@ -468,8 +483,8 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 
 		try:
 
-			# If the sql arg is a tuple we've been passed a string with a list for the purposes
-			#	of replacing parameters
+			# If the sql arg is a tuple we've been passed a string with a list
+			#	for the purposes of replacing parameters
 			if isinstance(sql, tuple):
 				oCursor.execute(sql[0], sql[1])
 			else:
@@ -485,7 +500,12 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 		except pymysql.err.ProgrammingError as e:
 
 			# Raise an SQL Exception
-			raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]), str(e.args[1]), str(sql)
+				)
+			)
 
 		# Else, a duplicate key error
 		except pymysql.err.IntegrityError as e:
@@ -499,7 +519,12 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
-				raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+				raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]), str(e.args[1]), str(sql)
+				)
+			)
 
 			# Increment the error count
 			errcnt += 1
@@ -514,7 +539,7 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 
 		# Else, catch any Exception
 		except Exception as e:
-			print('\n------------------------------------------------------------')
+			print('\n----------------------------------------')
 			print('Unknown Error in record_mysql.server.insert')
 			print('host = %s' % host)
 			print('sql = %s' % str(sql))
@@ -524,7 +549,13 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 			# Rethrow
 			raise e
 
-def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str = '_', errcnt: int = 0):
+def select(
+	sql: str,
+	seltype: Select = Select.ALL,
+	field: str = None,
+	host: str = '_',
+	errcnt: int = 0
+):
 	"""Select
 
 	Handles SELECT queries and returns the data
@@ -532,7 +563,7 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 	Arguments:
 		sql (str): The SQL statement to run
 		seltype (ESelect): The format to return the data in
-		field (str): Only used by HASH_ROWS since MySQLdb has no ordereddict
+		field (str): Only used by HASH_ROWS since MySQLdb has no ordereddict \
 			for associative rows
 		host (str): Optional, the name of the host to select from
 
@@ -551,8 +582,8 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 
 		try:
 
-			# If the sql arg is a tuple we've been passed a string with a list for the purposes
-			#	of replacing parameters
+			# If the sql arg is a tuple we've been passed a string with a list
+			#	for the purposes of replacing parameters
 			if isinstance(sql, tuple):
 				oCursor.execute(sql[0], sql[1])
 			else:
@@ -586,7 +617,10 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 			elif seltype == Select.HASH_ROWS:
 				# If the field arg wasn't set
 				if field == None:
-					raise ValueError('Must specificy a field for the dictionary key when using HASH_ROWS')
+					raise ValueError(
+						'Must specificy a field for the dictionary key when ' \
+						'using HASH_ROWS'
+					)
 
 				mData = {}
 				mTemp = oCursor.fetchall()
@@ -606,7 +640,12 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 		except pymysql.err.ProgrammingError as e:
 
 			# Raise an SQL Exception
-			raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]), str(e.args[1]), str(sql)
+				)
+			)
 
 		# Else there's an operational problem so close the connection and
 		#	restart
@@ -614,7 +653,12 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
-				raise ValueError(e.args[0], 'SQL error (' + str(e.args[0]) + '): ' + str(e.args[1]) + '\n' + str(sql))
+				raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]), str(e.args[1]), str(sql)
+				)
+			)
 
 			# Increment the error count
 			errcnt += 1
@@ -629,7 +673,7 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 
 		# Else, catch any Exception
 		except Exception as e:
-			print('\n------------------------------------------------------------')
+			print('\n----------------------------------------')
 			print('Unknown Error in record_mysql.server.select')
 			print('host = %s' % host)
 			print('sql = %s' % str(sql))
@@ -642,8 +686,8 @@ def select(sql: str, seltype: Select = Select.ALL, field: str = None, host: str 
 def timestamp_timezone(s: str) -> None:
 	"""Timestamp Offset
 
-	Used to deal with dumb mysql servers that return timestamps
-	as a string in the system's local time
+	Used to deal with dumb mysql servers that return timestamps as a string in \
+	the system's local time
 
 	Arguments:
 		s (str): The timezone offset

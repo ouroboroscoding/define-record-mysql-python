@@ -1,7 +1,7 @@
 # coding=utf8
 """Record Transaction
 
-Handles keeping track of multiple SQL statments from a single table and then
+Handles keeping track of multiple SQL statments from a single table and then \
 running them all at once
 """
 from __future__ import annotations
@@ -14,14 +14,11 @@ __created__		= "2023-04-07"
 # Limit exports
 __all__ = ['Transaction']
 
-# Python imports
-from typing import Literal as LT
-
-# Pip imports
-from define import NOT_SET
+# Ouroboros imports
+import undefined
 
 # Local imports
-from . import server, table
+from record_mysql import server, table
 
 class Transaction(list):
 	"""Transaction
@@ -32,11 +29,12 @@ class Transaction(list):
 	def __init__(self, table: table.Table):
 		"""Constructor
 
-		Creates a new instance of the Transaction to keep track of SQL
+		Creates a new instance of the Transaction to keep track of SQL \
 		statements and allow running them all at once
 
 		Arguments:
-			table (table.Table): The Table instance associated with the transaction
+			table (table.Table): The Table instance associated with the \
+				transaction
 
 		Returns:
 			Transaction
@@ -48,14 +46,14 @@ class Transaction(list):
 		# Store the table instance
 		self._table: table.Table = table
 
-	def delete(self, where: dict = NOT_SET) -> Transaction:
+	def delete(self, where: dict = undefined) -> Transaction:
 		"""Delete
 
 		Deletes all or some records
 
 		Arguments:
-			where (dict): Optional, field/value pairs to decide what records get
-							deleted
+			where (dict): Optional, field/value pairs to decide what records \
+				get deleted
 
 		Returns:
 			self for chaining
@@ -75,8 +73,8 @@ class Transaction(list):
 
 		Arguments:
 			values (dict): The dictionary of fields to values to be inserted
-			conflict (str | list): Must be one of 'error', 'ignore', 'replace',
-				or a list of fields to update
+			conflict (str | list): Must be one of 'error', 'ignore', \
+				'replace', or a list of fields to update
 
 		Returns:
 			self for chaining
@@ -105,13 +103,13 @@ class Transaction(list):
 	) -> Transaction:
 		"""Update
 
-		Updates a specific field to the value for an ID, many IDs, or the entire
-		table
+		Updates a specific field to the value for an ID, many IDs, or the \
+		entire table
 
 		Arguments:
 			values (dict): The dictionary of fields to values to be updated
-			where (dict): Optional, field/value pairs to decide what records get
-							updated
+			where (dict): Optional, field/value pairs to decide what records \
+				get updated
 			conflict (str): Must be one of 'error', 'ignore'
 
 		Returns:

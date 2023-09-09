@@ -13,13 +13,14 @@ __created__		= "2023-04-03"
 # Limit exports
 __all__ = ['Base']
 
+# Ouroboros imports
+from define import Base as _Base
+from jobject import jobject
+import undefined
+
 # Python imports
 from abc import ABC, abstractmethod
 from copy import copy
-
-# Pip imports
-from define import Base as _Base, NOT_SET
-from jobject import jobject
 
 # Local imports
 from .table import Func, Table
@@ -28,15 +29,16 @@ from .transaction import Transaction
 class Base(ABC):
 	"""Base
 
-	An interface for mysql classes so they have a set of methods they know they
-	can call on each other
+	An interface for mysql classes so they have a set of methods they know \
+	they can call on each other
 	"""
 
 	__types = {}
 	"""Types
 
-	Holds dictionary of define class names to the classes that handle them in
-	record_mysql"""
+	Holds dictionary of define class names to the classes that handle them in \
+	record_mysql
+	"""
 
 	def __init__(self,
 		name: str | None,
@@ -71,7 +73,7 @@ class Base(ABC):
 	def __getattr__(self, name: str) -> any:
 		"""Get Attribute
 
-		Implements Python magic method __getattr__ to give object notation
+		Implements Python magic method __getattr__ to give object notation \
 		access to dictionaries
 
 		Arguments:
@@ -91,7 +93,7 @@ class Base(ABC):
 	def __getitem__(self, name: str) -> any:
 		"""Get Item
 
-		Implements Python magic method __getitem__ to give dict access to the
+		Implements Python magic method __getitem__ to give dict access to the \
 		instance
 
 		Arguments:
@@ -114,8 +116,8 @@ class Base(ABC):
 	def add_type(cls, type_: str) -> None:
 		"""Add Type
 
-		Stores the calling class under the type so that it can be used to create
-		class instances later on
+		Stores the calling class under the type so that it can be used to \
+		create class instances later on
 
 		Arguments:
 			type_ (str): The type of the type to add
@@ -158,7 +160,7 @@ class Base(ABC):
 		# Create and return a new instance of the type
 		return cls.__types[type_](name, parent, details)
 
-	def count(self, filter: dict = NOT_SET) -> int:
+	def count(self, filter: dict = undefined) -> int:
 		"""Count
 
 		Returns the count of records, with or without a filter
@@ -197,13 +199,13 @@ class Base(ABC):
 	) -> list | dict | None:
 		"""Delete
 
-		Deletes one or more rows associated with the given ID and returns what
+		Deletes one or more rows associated with the given ID and returns what \
 		was deleted
 
 		Arguments:
 			_id (str): The unique ID associated with rows to be deleted
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			list | dict | None
@@ -241,7 +243,7 @@ class Base(ABC):
 	def install(self) -> bool:
 		"""Install
 
-		Create the associated table if there is one, then asks each complex
+		Create the associated table if there is one, then asks each complex \
 		child to create its own tables
 
 		Returns:
@@ -274,15 +276,15 @@ class Base(ABC):
 	) -> dict | list | None:
 		"""Set
 
-		Sets the row or rows associated with the given ID and returns the
+		Sets the row or rows associated with the given ID and returns the \
 		previous row or rows that were overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID of the parent
-			data (dict): A dict representing a structure of data to be set
-							under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			data (dict): A dict representing a structure of data to be set \
+				under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			dict | list | None
@@ -304,8 +306,6 @@ class Base(ABC):
 
 		# If we have no table
 		except AttributeError as e:
-			print(dir(self))
-			print(e)
 
 			# Return the structure of the parent
 			try:
@@ -320,8 +320,8 @@ class Base(ABC):
 	def uninstall(self) -> bool:
 		"""Uninstall
 
-		Drops the associated table if there is one, then asks each complex child
-		to drop its own tables
+		Drops the associated table if there is one, then asks each complex \
+		child to drop its own tables
 
 		Returns:
 			bool
@@ -353,15 +353,15 @@ class Base(ABC):
 	) -> list | dict | None:
 		"""Update
 
-		Updates the row or rows associated with the given ID and returns the
+		Updates the row or rows associated with the given ID and returns the \
 		previous row or rows that were overwritten if there's any changes
 
 		Arguments:
 			id (str): The ID to update records for
-			data (list | dict): A list or dict representing a structure of data
-									to be updated under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			data (list | dict): A list or dict representing a structure of \
+				data to be updated under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			list | dict | None

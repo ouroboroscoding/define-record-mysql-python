@@ -1,7 +1,7 @@
 # coding=utf8
-"""Define Record MySQL
+"""Record MySQL
 
-Define Record data structures using MySQL as a database
+Record data structures using MySQL as a database
 """
 
 __author__		= "Chris Nasr"
@@ -20,9 +20,11 @@ __all__ = [
 	'timestamp_timezone', 'verbose'
 ]
 
+# Ouroboros imports
+from record import Data
+
 # Local imports
-from .data import Data
 from .storage import Storage
 from .server import add_host, db_create, db_drop, escape, execute, insert, \
-    				select, timestamp_timezone, verbose
+					select, timestamp_timezone, verbose
 from .table import Literal

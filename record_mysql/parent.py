@@ -12,15 +12,15 @@ __created__		= "2023-04-03"
 # Limit exports
 __all__ = ['Parent']
 
-# Pip imports
+# Ouroboros imports
 import define
 from jobject import jobject
 from tools import merge, without
 
 # Local imports
-from .base import Base
-from .table import Table
-from .transaction import Transaction
+from record_mysql.base import Base
+from record_mysql.table import Table
+from record_mysql.transaction import Transaction
 
 class Parent(Base):
 	"""Row
@@ -75,8 +75,19 @@ class Parent(Base):
 		# If we have any columns
 		if self._columns:
 
-			# Add the ID to the keys
-			self._keys['_id'] = define.Node({ '__type__': 'uuid' })
+			# Init dParent just in case
+			dParent = None
+
+			# If there's a parent, add the ID to the keys
+			if self._parent:
+
+				# Get its structure
+				dParent = self._parent.struct()
+
+				# Add the ID to make the connection
+				self._keys[dParent.key] = define.Node({
+					'__type__': 'uuid'
+				})
 
 			# Init the base structure
 			dStruct = jobject({
@@ -86,9 +97,9 @@ class Parent(Base):
 					*self._columns.keys()
 				],
 				'db': 'test',
+				'key': '_id',
 				'host': '_',
 				'indexes': [],
-				'key': '_id',
 				'revisions': False,
 				'name': name
 			})
@@ -99,17 +110,26 @@ class Parent(Base):
 			# If there's a parent
 			if self._parent:
 
-				# Get its structure
-				dParent = self._parent.struct()
-
 				# Update the base data
 				dStruct.db = dParent.db
 				dStruct.host = dParent.host
+				dStruct.key = dParent.key
 				dStruct.name = '%s_%s' % (dParent.name, name)
 
-			# If there's a special section, overwrite any values it has
-			#	with the created ones
+			# If there's a special section, overwrite any values it has with
+			#	the created ones
+			dMySQL = details.special('mysql')
 			if dMySQL:
+
+				# If there's any additional indexes
+				if 'indexes' in dMySQL:
+
+					# Remove them and use them to extend the main struct
+					dStruct.indexes.extend(
+						dMySQL.pop('indexes')
+					)
+
+				# Merge whatever remains
 				merge(dStruct, dMySQL)
 
 			# Create a new columns with the ID
@@ -162,7 +182,7 @@ class Parent(Base):
 		Arguments:
 			_id (str): The unique ID associated with rows to be deleted
 			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+				statements to
 
 		Returns:
 			dict | None
@@ -183,15 +203,15 @@ class Parent(Base):
 			# Get the existing data without special keys
 			dOldData = self._table.select(
 				fields = self._columns.keys(),
-				where = { '_id' : _id },
-				limit = (1,)
+				where = { self._table._struct.key : _id },
+				limit = 1
 			)
 
 			# If we got a record
 			if dOldData:
 
 				# Delete it
-				lTA.delete(where = { '_id': _id })
+				lTA.delete(where = { self._table._struct.key: _id })
 
 		# Go through each complex
 		for f in self._complex:
@@ -214,7 +234,7 @@ class Parent(Base):
 				return None
 
 		# Return the data
-		return dOldData and dOldData or None
+		return dOldData or None
 
 	def filter(self, filter: dict) -> list[str]:
 		"""Filter
@@ -231,15 +251,15 @@ class Parent(Base):
 		# Find the IDs of the records with the given filter in the table, then
 		#	try to find the top level IDs they correspond to
 		return self.get_ids([
-			d['_id'] for d in
+			d[self._table._struct.key] for d in
 			self._table.select(
 				distinct = True,
-				fields = '_id',
+				fields = self._table._struct.key,
 				where = filter
 			)
 		])
 
-	def get(self, id: str) -> list[dict]:
+	def get(self, _id: str) -> list[dict]:
 		"""Get
 
 		Retrieves all the rows associated with the given ID
@@ -259,39 +279,43 @@ class Parent(Base):
 
 			# Find the rows
 			dRow = self._table.select(
-				where = { '_id': id },
-				limit = (1,)
+				where = { self._table._struct.key: _id },
+				limit = 1
 			)
 
 			# If we got anything, update the return with the row minus the ID
 			if dRow:
-				dRet.update(without(dRow, '_id'))
+				dRet.update(without(dRow, self._table._struct.key))
 
 		# Go through each complex record
 		for f in self._complex:
 
 			# Call the child get, passing along the ID, and store the results
-			dRet[f] = self._complex[f].get(id)
+			mComplex = self._complex[f].get(id)
+
+			# If we got anything, add it to the return
+			if mComplex:
+				dRet[f] = mComplex
 
 		# Return the row data
 		return dRet
 
 	def set(self,
-		id: str,
+		_id: str,
 		data: dict,
 		ta: Transaction | None = None
 	) -> dict | list | None:
 		"""Set
 
-		Sets the row associated with the given ID and returns the previous row
+		Sets the row associated with the given ID and returns the previous row \
 		that was overwritten if there's any changes
 
 		Arguments:
-			id (str): The ID of the parent
-			data (dict): A dict representing a structure of data to be set
-							under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			_id (str): The ID of the parent
+			data (dict): A dict representing a structure of data to be set \
+				under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			dict | None
@@ -314,17 +338,13 @@ class Parent(Base):
 				bTableCheck = True
 				break
 
-		# Init the number of fields that changed and that also returned simple
-		# old / new revisions indicating their entire value changed
-		iFullChange = 0
-
 		# If any field in the table associated with this instance is present
 		if bTableCheck:
 
 			# Fetch the record associated with the ID
 			dOldData = self._table.select(
 				fields = self._columns.keys(),
-				where = { '_id': id },
+				where = { self._table._struct.key: _id },
 				limit = 1
 			)
 
@@ -333,7 +353,7 @@ class Parent(Base):
 
 				# Update the row in the table
 				lTA.update(without(data, self._keys.keys()), {
-					'_id': id
+					self._table._struct.key: _id
 				})
 
 			# Else, it's a new row
@@ -341,23 +361,26 @@ class Parent(Base):
 
 				# Create a new record from the data using the passed ID
 				lTA.insert({
-					**{ '_id': id },
+					**{ self._table._struct.key: _id },
 					**without(data, list(self._keys.keys()))
 				})
 
 		# Go through each complex field
 		for f in self._complex:
 
-			# Call its set method
-			mRet = self._complex[f].set(
-				id,			# The same ID we got
-				data[f],	# The values for that specific field
-				lTA			# Our transaction object
-			)
+			# If we have any data
+			if f in data:
 
-			# If we were successful
-			if mRet:
-				dOldData[f] = mRet
+				# Call its set method
+				mRet = self._complex[f].set(
+					_id,		# The same ID we got
+					data[f],	# The values for that specific field
+					lTA			# Our transaction object
+				)
+
+				# If we were successful
+				if mRet:
+					dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
 		if ta:
@@ -374,21 +397,21 @@ class Parent(Base):
 		return dOldData
 
 	def update(self,
-		id: str,
+		_id: str,
 		data: dict,
-		ta: Transaction = None
+		ta: Transaction | None = None
 	) -> dict | None:
 		"""Update
 
-		Updates the row associated with the given ID and returns the previous
+		Updates the row associated with the given ID and returns the previous \
 		row that was updated if there's any changes
 
 		Arguments:
-			id (str): The ID to update records for
-			data (list | dict): A list or dict representing a structure of data
-									to be updated under the given ID
-			ta (Transaction): Optional, the open transaction to add new sql
-			 					statements to
+			_id (str): The ID to update records for
+			data (list | dict): A list or dict representing a structure of \
+				data to be updated under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
 
 		Returns:
 			dict | None
@@ -411,21 +434,17 @@ class Parent(Base):
 				bTableCheck = True
 				break
 
-		# Init the number of fields that changed and that also returned simple
-		# old / new revisions indicating their entire value changed
-		iFullChange = 0
-
 		# If any field in the table associated with this instance is present
 		if bTableCheck:
 
 			# Make a copy of the data without the complex fields
-			dData = without(data, self._complex.keys())
+			dData = without(data, list(self._complex.keys()))
 
 			# Fetch the record associated with the ID
 			dOldData = self._table.select(
 				fields = self._columns.keys(),
-				where = { '_id': id },
-				limit = (1,)
+				where = { self._table._struct.key: _id },
+				limit = 1
 			)
 
 			# If we have the row
@@ -450,7 +469,7 @@ class Parent(Base):
 
 					# Add the update to the transactions
 					lTA.update(dUpdates, {
-						'_id': id
+						self._table._struct.key: _id
 					})
 
 			# Else, we already have the row
@@ -458,23 +477,26 @@ class Parent(Base):
 
 				# Create a new record from the data using the passed ID
 				lTA.insert({
-					**{ '_id': id },
+					**{ self._table._struct.key: _id },
 					**without(data, self._keys.keys())
 				})
 
 		# Go through each complex field
 		for f in self._complex:
 
-			# Call its update method
-			mRet = self._complex[f].update(
-				id,			# The same ID we got
-				data[f],	# The values for that specific field
-				lTA			# Our transaction object
-			)
+			# If it exists in the data
+			if f in data:
 
-			# If we were successful
-			if mRet:
-				dOldData[f] = mRet
+				# Call its update method
+				mRet = self._complex[f].update(
+					_id,		# The same ID we got
+					data[f],	# The values for that specific field
+					lTA			# Our transaction object
+				)
+
+				# If we were successful
+				if mRet:
+					dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
 		if ta:
@@ -488,7 +510,7 @@ class Parent(Base):
 				return None
 
 		# Return success or failure
-		return mRet
+		return dOldData
 
 # Add the Parent type to the base types as 'Parent'
 Parent.add_type('Parent')
