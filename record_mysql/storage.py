@@ -602,16 +602,25 @@ class Storage(_Storage):
 			# If we need revisions
 			if self._parent._table._struct.revisions:
 
-				print('----------------------------------------')
-				print('changes: ')
-				pprint(mRes)
-				print('----------------------------------------')
+				# Set the initial revisions record
+				dRevisions = { 'old': mRes, 'new': value }
 
-			# Generate the SQL to add the revision record to the table and add
-			#	it to the transaction list
-			#lTA.append(
-			#	self._parent._table.revision_add(sID, dRevisions)
-			#)
+				# If revisions requires fields
+				if isinstance(self._parent._table._struct.revisions, list):
+
+					# If they weren't passed
+					if not isinstance(revision_info, dict):
+						raise ValueError('revision')
+
+					# Else, add the extra fields
+					for f in self._parent._table._struct.revisions:
+						dRevisions[f] = revision_info[f]
+
+				# Generate the SQL to add the revision record to the table and add
+				#	it to the transaction list
+				lTA.append(
+					self._parent._table.revision_add(_id, dRevisions)
+				)
 
 			# If we have a cache
 			if self._cache:
