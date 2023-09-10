@@ -13,7 +13,7 @@ __created__		= "2023-04-01"
 __all__ = ['Storage']
 
 # Ouroboros imports
-from record import Data, Cache, Storage as _Storage
+from record import Cache, CONFLICT, Data, Storage as _Storage
 import undefined
 
 # Local imports
@@ -78,29 +78,30 @@ class Storage(_Storage):
 
 	def add(self,
 		value: dict,
-		revision: dict | None = None
-	) -> str:
+		conflict: CONFLICT = 'error',
+		revision_info: dict = undefined
+	) -> str | list:
 		"""Add
 
-		Adds a raw record to the mysql database table
+		Adds one raw record to the storage system
 
 		Arguments:
 			value (dict): A dictionary of fields to data
-			conflict (str|list): Must be one of 'error', 'ignore', 'replace', \
-				or a list of fields to update
-			revision (dict): Data needed to store a change record, is \
-				dependant on the 'revision' config value
+			conflict (CONFLICT): A string describing what to do in the case of \
+				a conflict in adding the record
+			revision_info (dict): Optional, additional information to store \
+				with the revision record
 
 		Returns:
 			The ID of the added record
 		"""
 
+		# Add it to the value
+		value[self._key] = self.uuid()
+
 		# Validate the data
 		if not self.valid(value):
 			raise ValueError(self._validation_failures)
-
-		# Add it to the value
-		value[self._key] = self.uuid()
 
 		# Create a transaction
 		lTA = self._parent._table.transaction()
@@ -125,12 +126,12 @@ class Storage(_Storage):
 			if isinstance(self._parent._table._struct.revisions, list):
 
 				# If they weren't passed
-				if not isinstance(revision, dict):
+				if not isinstance(revision_info, dict):
 					raise ValueError('revision')
 
 				# Else, add the extra fields
 				for f in self._parent._table._struct.revisions:
-					dRevisions[f] = revision[f]
+					dRevisions[f] = revision_info[f]
 
 			# Generate the SQL to add the revision record to the table and add
 			#	it to the transaction list
@@ -141,6 +142,10 @@ class Storage(_Storage):
 		# Run the transactions
 		if not lTA.run():
 			return None
+
+		# If we have a cache
+		if self._cache:
+			self._cache.store(value[self._key], value)
 
 		# Return the ID of the new record
 		return value[self._key]
@@ -356,32 +361,34 @@ class Storage(_Storage):
 		return self._parent.install()
 
 	def remove(self,
-		_id: str | list[str],
-		revision: dict | None = None
-	) -> dict | list[dict]:
+		_id: str | list[str] = undefined,
+		filter: dict = undefined,
+		revision_info = undefined
+	) -> int:
 		"""Remove
 
-		Removes one or more records from storage by ID and returns the data \
-		that was in the record(s)
+		Removes one or more records from storage by ID or filter, and returns \
+		the the record or records removed
 
 		Arguments:
-			_id (str | str[]): The ID(s) to remove
-			revision (dict): Data needed to store a change record, is \
-				dependant on the 'revision' config value
+			_id (str): Optional, the ID(s) to remove
+			filter (dict): Optional, data to filter what gets deleted
+			revision_info (dict): Optional, additional data needed to store a \
+				revision record. Is dependant on the 'revision' config value
 
 		Returns:
 			dict | dict[]
 		"""
 
 		# Assume multiple
-		one = False
+		bOne = False
 
 		# The IDs to remove
 		lIDs = _id
 
 		# If we only got one
 		if isinstance(_id, str):
-			one = True
+			bOne = True
 			lIDs = [_id]
 
 		# Else, if we didn't get a
@@ -403,28 +410,31 @@ class Storage(_Storage):
 			# Delete the record using the parent and store it
 			dRecord = self._parent.delete(sID, lTA)
 
-			# If something was removed, and we store revisions
-			if dRecord and self._parent._table._struct.revisions:
+			# If something was removed
+			if dRecord:
 
-				# Set the initial revisions record
-				dRevisions = { 'old': dRecord, 'new': None }
+				# If we store revisions
+				if self._parent._table._struct.revisions:
 
-				# If revisions requires fields
-				if isinstance(self._parent._table._struct.revisions, list):
+					# Set the initial revisions record
+					dRevisions = { 'old': dRecord, 'new': None }
 
-					# If they weren't passed
-					if not isinstance(revision, dict):
-						raise ValueError('revision')
+					# If revisions requires fields
+					if isinstance(self._parent._table._struct.revisions, list):
 
-					# Else, add the extra fields
-					for f in self._parent._table._struct.revisions:
-						dRevisions[f] = revision[f]
+						# If they weren't passed
+						if not isinstance(revision_info, dict):
+							raise ValueError('revision')
 
-				# Generate the SQL for the revision and add it to the
-				#	transactions
-				lTA.append(
-					self._parent._table.revision_add(sID, dRevisions)
-				)
+						# Else, add the extra fields
+						for f in self._parent._table._struct.revisions:
+							dRevisions[f] = revision_info[f]
+
+					# Generate the SQL for the revision and add it to the
+					#	transactions
+					lTA.append(
+						self._parent._table.revision_add(sID, dRevisions)
+					)
 
 			# Add the record to the list of results
 			lResults.append(dRecord)
@@ -432,6 +442,17 @@ class Storage(_Storage):
 		# Delete all the records at once
 		if not lTA.run():
 			return None
+
+		# If we have a cache
+		if self._cache:
+
+			# Mark the records as missing to avoid subsequent hits trying to
+			#	fetch the old records
+			self._cache.add_missing(lIDs)
+
+		# If there's only one
+		if bOne:
+			lResults = lResults[0]
 
 		# Return the result or nothing
 		return lResults or None
@@ -461,7 +482,8 @@ class Storage(_Storage):
 		_id: str,
 		value: dict,
 		replace: bool = False,
-		revision_info: dict = None
+		revision_info: dict = undefined,
+		full: dict = undefined
 	) -> bool:
 		"""Save
 
@@ -472,8 +494,12 @@ class Storage(_Storage):
 			value (dict): A dictionary of fields to data that has been changed
 			replace (bool): Optional, set to True to completely replace the \
 				the record
-			revision_info (dict): Data needed to store a change record, is \
-				dependant on the 'revision' config value
+			revision_info (dict): Optional, a dict of additional data needed \
+				to store a revision record, is dependant on the 'revision' \
+				config value
+			full (dict): Optional, the full data, used for revisions and \
+				caching, saves processing cycles fetching data from the DB if \
+				we already have it
 
 		Returns:
 			True on success
@@ -501,25 +527,25 @@ class Storage(_Storage):
 		# Do we have changes
 		if mRes:
 
-			# If we have a cache
-			if self._cache:
-
-				# Reset the cache
-				self._cache.store(_id, self._parent.get(_id))
-
 			# If we need revisions
 			if self._parent._table._struct.revisions:
 
 				print('----------------------------------------')
-				print('revisions: ')
+				print('changes: ')
 				pprint(mRes)
 				print('----------------------------------------')
 
-		# Generate the SQL to add the revision record to the table and add
-		#	it to the transaction list
-		lTA.append(
-			self._parent._table.revision_add(sID, dRevisions)
-		)
+			# Generate the SQL to add the revision record to the table and add
+			#	it to the transaction list
+			#lTA.append(
+			#	self._parent._table.revision_add(sID, dRevisions)
+			#)
+
+			# If we have a cache
+			if self._cache:
+
+				# Reset the cache
+				self._cache.store(_id, full or self._parent.get(_id))
 
 		# Run the transactions
 		if not lTA.run():

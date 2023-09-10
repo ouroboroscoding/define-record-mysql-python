@@ -17,6 +17,7 @@ __all__ = [
 
 # Python imports
 from enum import IntEnum
+import re
 from time import sleep
 
 # Pip imports
@@ -36,8 +37,9 @@ __timestamp_timezone = '+00:00'
 # Verbose mode
 __verbose = True
 
-# defines
+# constants
 MAX_RETRIES = 3
+DUP_ENTRY_REGEX = re.compile('Duplicate entry \'(.*?)\' for key \'(.*?)\'')
 
 class Select(IntEnum):
 	"""Select
@@ -418,7 +420,16 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 		# Else, a duplicate key error
 		except pymysql.err.IntegrityError as e:
 
-			# Raise a Duplicate Record Exception
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise RecordDuplicate(oMatch.group(1), oMatch.group(2))
+
+			# Else, raise an unkown duplicate
 			raise RecordDuplicate(e.args[0], e.args[1])
 
 		# Else there's an operational problem so close the connection and
@@ -510,7 +521,16 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 		# Else, a duplicate key error
 		except pymysql.err.IntegrityError as e:
 
-			# Raise a Duplicate Record Exception
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise RecordDuplicate(oMatch.group(1), oMatch.group(2))
+
+			# Else, raise an unkown duplicate
 			raise RecordDuplicate(e.args[0], e.args[1])
 
 		# Else there's an operational problem so close the connection and

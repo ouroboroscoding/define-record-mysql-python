@@ -406,6 +406,9 @@ class Table(object):
 				)
 			))
 
+		# Init the list of indexes
+		lIndexes = []
+
 		# If we have a primary key
 		if self._struct.key:
 
@@ -437,7 +440,7 @@ class Table(object):
 			))
 
 			# Init the list of indexes
-			lIndexes = ['primary key (`%s`)' % self._struct.key]
+			lIndexes.append('primary key (`%s`)' % self._struct.key)
 
 		# If there are indexes
 		if self._struct.indexes:
@@ -447,9 +450,6 @@ class Table(object):
 				raise ValueError(
 					'record_mysql.table.struct.indexes must be a list'
 				)
-
-			# Init the list of indexes
-			lIndexes = []
 
 			# Loop through the indexes to get the data associated
 			for mi in self._struct.indexes:

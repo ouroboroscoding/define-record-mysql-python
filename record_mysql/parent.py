@@ -291,7 +291,7 @@ class Parent(Base):
 		for f in self._complex:
 
 			# Call the child get, passing along the ID, and store the results
-			mComplex = self._complex[f].get(id)
+			mComplex = self._complex[f].get(_id)
 
 			# If we got anything, add it to the return
 			if mComplex:
