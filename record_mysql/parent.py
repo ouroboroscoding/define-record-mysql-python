@@ -32,14 +32,15 @@ class Parent(Base):
 		Base
 	"""
 
-	def __init__(self, name: str, parent: Base, details: define.Parent):
+	def __init__(self, name: str, parent: Base | str, details: define.Parent):
 		"""Constructor
 
 		Creates a new instance
 
 		Arguments:
 			name (str): The name of the structure in its parent, if it has one
-			parent (Base): The instance of the parent this struct belongs to
+			parent (Base | str): The instance of the parent this struct \
+				belongs to, or the name of the key
 			details (define.Parent): The define.Parent associated
 
 		Returns:
@@ -50,10 +51,10 @@ class Parent(Base):
 		super(Parent, self).__init__(name, parent)
 
 		# Do we have a parent?
-		bParent = isinstance(parent, Base)
+		self._has_parent = isinstance(parent, Base)
 
 		# If we have a parent
-		if bParent:
+		if self._has_parent:
 
 			# Overwrite this instance's _get_ids method with the parent's one
 			self._get_ids = parent._get_ids
@@ -83,7 +84,7 @@ class Parent(Base):
 			dParent = None
 
 			# If we have a parent
-			if bParent:
+			if self._has_parent:
 
 				# Get its structure
 				dParent = self._parent.struct()
@@ -101,7 +102,7 @@ class Parent(Base):
 					*self._columns.keys()
 				],
 				'db': 'test',
-				'key': bParent and dParent.key or parent,
+				'key': self._has_parent and dParent.key or parent,
 				'host': '_',
 				'indexes': [],
 				'revisions': False,
@@ -112,7 +113,7 @@ class Parent(Base):
 			dMySQL = details.special('mysql')
 
 			# If there's a parent
-			if bParent:
+			if self._has_parent:
 
 				# Update the base data
 				dStruct.db = dParent.db
@@ -287,9 +288,14 @@ class Parent(Base):
 				limit = 1
 			)
 
-			# If we got anything, update the return with the row minus the ID
+			# If we got anything, update the return
 			if dRow:
-				dRet.update(without(dRow, self._table._struct.key))
+
+				# If we have a parent, use the row minus the ID, else the row
+				dRet.update(self._has_parent and \
+					without(dRow, self._table._struct.key) or
+					dRow
+				)
 
 		# Go through each complex record
 		for f in self._complex:
@@ -445,14 +451,14 @@ class Parent(Base):
 			dData = without(data, list(self._complex.keys()))
 
 			# Fetch the record associated with the ID
-			dOldData = self._table.select(
+			dCurrData = self._table.select(
 				fields = self._columns.keys(),
 				where = { self._table._struct.key: _id },
 				limit = 1
 			)
 
 			# If we have the row
-			if dOldData:
+			if dCurrData:
 
 				# Keep a list of changes
 				dUpdates = {}
@@ -465,8 +471,9 @@ class Parent(Base):
 
 						# If the value doesn't exist in the existing data, or it
 						#	does but it's different
-						if f not in dOldData or dOldData[f] != data[f]:
+						if f not in dCurrData or dCurrData[f] != data[f]:
 							dUpdates[f] = data[f]
+							dOldData[f] = dCurrData[f]
 
 				# If we have anything left to update
 				if dUpdates:
