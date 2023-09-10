@@ -39,7 +39,11 @@ class Storage(_Storage):
 		record.Storage
 	"""
 
-	def __init__(self, details: dict | str, extend: dict = undefined):
+	def __init__(self,
+		details: dict | str,
+		extend: dict = undefined,
+		key_name: str = '_id'
+	):
 		"""Constructor
 
 		Creates a new instance of a single table, or in the case of complex \
@@ -50,6 +54,8 @@ class Storage(_Storage):
 			details (dict | str): Definition or filepath to load
 			extend (dict | False): Optional, a dictionary to extend the \
 				definition
+			key_name (str): Optional, the name of the primary key, defaults to \
+				_id
 
 		Raises:
 			KeyError, ValueError
@@ -59,13 +65,15 @@ class Storage(_Storage):
 		"""
 
 		# Call the parent constructor
-		super().__init__(details, extend)
+		super().__init__(details, extend, key_name)
 
 		# Create the top level parent for the record
-		self._parent = Parent(self._name, None, self)
+		self._parent = Parent(self._name, key_name, self)
 
-		# Store the key name
-		self._key = self._parent._table._struct.key
+		# If the key name was overwritten in the special values, then we need
+		#	to store the global one
+		if self._parent._table._struct.key != key_name:
+			self._key = self._parent._table._struct.key
 
 		# Get the cache section
 		oCache = self.special('cache', {
@@ -190,8 +198,11 @@ class Storage(_Storage):
 			None | Data | Data[] | dict | dict[]
 		"""
 
-		# If we got IDs
-		if _id:
+		# Init the records
+		lRecords = None
+
+		# If we got one or more IDs
+		if _id is not undefined:
 
 			# If we have just one
 			if isinstance(_id, str):
@@ -226,10 +237,7 @@ class Storage(_Storage):
 					return dRecord
 
 				# Return a new Data
-				return Data(self, dRecord)
-
-			# Init the records
-			lRecords = None
+				return Data(self, _id, dRecord)
 
 			# If we have a cache
 			if self._cache:
@@ -244,7 +252,7 @@ class Storage(_Storage):
 					if lRecords[i] is None:
 
 						# Fetch it from the system
-						dRecord = self._parent.get(_id)
+						dRecord = self._parent.get(_id[i])
 
 						# If it doesn't exist
 						if not dRecord:
@@ -278,19 +286,83 @@ class Storage(_Storage):
 
 					# Fetch the record from the DB, store it even if it's not
 					#	found
-					lRecords.append(
+					lRecords.append([
+						sID,
 						self._parent.get(sID)
-					)
+					])
 
-				# If we want the records as is
-				if raw:
-					return lRecords
+		# Else, if we have a filter
+		elif filter is not undefined:
+			pass
 
-				# Return a new Data
-				return [Data(self, d) for d in lRecords]
+		# Else, fetch all or most records
+		else:
 
-		# Else
-		raise ValueError('invalid use of Storage.fetch')
+			# Fetch all the IDs avaialble first
+			lIDs = self._parent._table.select(
+				fields = [self._key],
+				limit = limit
+			)
+
+			# If we got anything
+			if lIDs:
+
+				# Flatten the list
+				lIDs = [d[self._key] for d in lIDs]
+
+				# If we have a cache
+				if self._cache:
+
+					# Try to get them from the cache
+					lRecords = self._cache.fetch(lIDs)
+
+					# Go through each record by index
+					for i in range(len(lRecords)):
+
+						# If we didn't get the record
+						if lRecords[i] is None:
+
+							# Fetch it from the system
+							dRecord = self._parent.get(lIDs[i])
+
+							# If it doesn't exist
+							if not dRecord:
+
+								# Mark it as missing so we don't overload the
+								#	system. Any future requests will return the
+								#	record as False
+								self._cache.add_missing(lIDs[i])
+
+							# Else, we have it
+							else:
+
+								# Store it for next time
+								self._cache.store(lIDs[i], dRecord)
+
+						# Else, if it's False, set it to None and move on, we know
+						#	this record does not exist
+						elif lRecords[i] == False:
+							lRecords[i] = None
+
+				# Else, we have no cache
+				else:
+
+					# Get the full record for each ID
+					lRecords = [
+						self._parent.get(sID) \
+						for sID in lIDs
+					]
+
+		# If we have nothing, return nothing
+		if not lRecords:
+			return None
+
+		# If we want the records as is
+		if raw:
+			return lRecords
+
+		# Return a new Data
+		return [l and Data(self, l[0], l[1]) or None for l in lRecords]
 
 	def exists(self, _id: str) -> bool:
 		"""Exists

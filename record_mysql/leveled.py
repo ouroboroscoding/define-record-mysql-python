@@ -167,7 +167,7 @@ class Leveled(Base):
 				'fields': ['_parent', *self._levels],
 				'type': 'unique'
 			}],
-			'key': (self._node == False) and self._table._struct.key or False,
+			'key': (self._node == False) and dParent.key or False,
 			'revisions': False,
 			'name': '%s_%s' % (dParent.name, name)
 		})

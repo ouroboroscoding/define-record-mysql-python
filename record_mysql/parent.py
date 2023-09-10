@@ -48,8 +48,11 @@ class Parent(Base):
 		# Call the Base constructor
 		super(Parent, self).__init__(name, parent)
 
+		# Do we have a parent?
+		bParent = isinstance(parent, Base)
+
 		# If we have a parent
-		if parent:
+		if bParent:
 
 			# Overwrite this instance's _get_ids method with the parent's one
 			self._get_ids = parent._get_ids
@@ -78,8 +81,8 @@ class Parent(Base):
 			# Init dParent just in case
 			dParent = None
 
-			# If there's a parent, add the ID to the keys
-			if self._parent:
+			# If we have a parent
+			if bParent:
 
 				# Get its structure
 				dParent = self._parent.struct()
@@ -97,7 +100,7 @@ class Parent(Base):
 					*self._columns.keys()
 				],
 				'db': 'test',
-				'key': '_id',
+				'key': bParent and dParent.key or parent,
 				'host': '_',
 				'indexes': [],
 				'revisions': False,
@@ -108,7 +111,7 @@ class Parent(Base):
 			dMySQL = details.special('mysql')
 
 			# If there's a parent
-			if self._parent:
+			if bParent:
 
 				# Update the base data
 				dStruct.db = dParent.db

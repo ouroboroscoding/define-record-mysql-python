@@ -42,7 +42,7 @@ class Base(ABC):
 
 	def __init__(self,
 		name: str | None,
-		parent: Base | None
+		parent: Base | str
 	):
 		"""Constructor
 
@@ -50,7 +50,8 @@ class Base(ABC):
 
 		Arguments:
 			name (str): The name of the instance in the parent
-			parent (Base): The parent of this instance, if there is one
+			parent (Base | str): The parent of this instance, if there is one,
+				else the name of the primary key to use
 
 		Returns:
 			Base
@@ -60,7 +61,7 @@ class Base(ABC):
 		self._name: str | None = name
 
 		# Store the parent
-		self._parent: Base | None = parent
+		self._parent: Base | str = parent
 
 		# Init the field dicts
 		self._keys: dict = {}
