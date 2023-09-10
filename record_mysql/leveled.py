@@ -17,6 +17,7 @@ __all__ = ['Leveled']
 import define
 from jobject import jobject
 from tools import combine, compare, lfindi, merge, without
+import undefined
 
 # Python imports
 from copy import copy
@@ -456,7 +457,7 @@ class Leveled(Base):
 
 	def delete(self,
 		_id: str,
-		ta: Transaction
+		ta: Transaction = undefined
 	) -> list | dict | None:
 		"""Delete
 
@@ -500,7 +501,7 @@ class Leveled(Base):
 						lOldData[i][f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
-		if ta:
+		if ta is not undefined:
 			ta.extend(lTA)
 
 		# Else, run everything
@@ -582,7 +583,7 @@ class Leveled(Base):
 	def set(self,
 		_id: str,
 		data: dict,
-		ta: Transaction | None = None
+		ta: Transaction = undefined
 	) -> dict | list | None:
 		"""Set
 
@@ -663,7 +664,7 @@ class Leveled(Base):
 					)
 
 		# If we have a transaction passed in, extend it with ours
-		if ta:
+		if ta is not undefined:
 			ta.extend(lTA)
 
 		# Else, run everything
@@ -679,7 +680,7 @@ class Leveled(Base):
 	def update(self,
 		id: str,
 		data: list | dict,
-		ta: Transaction
+		ta: Transaction = undefined
 	) -> list | None:
 		"""Update
 
@@ -881,6 +882,17 @@ class Leveled(Base):
 				lOldData = self._elevate(
 					without(lOldData, [self._table._struct.key, '_parent'])
 				)
+
+		# If we have a transaction passed in, extend it with ours
+		if ta is not undefined:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful
+			if not lTA.run():
+				return None
 
 		# Return the old data
 		return lOldData or None

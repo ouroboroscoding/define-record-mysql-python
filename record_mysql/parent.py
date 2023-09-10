@@ -16,6 +16,7 @@ __all__ = ['Parent']
 import define
 from jobject import jobject
 from tools import merge, without
+import undefined
 
 # Local imports
 from record_mysql.base import Base
@@ -306,7 +307,7 @@ class Parent(Base):
 	def set(self,
 		_id: str,
 		data: dict,
-		ta: Transaction | None = None
+		ta: Transaction = undefined
 	) -> dict | list | None:
 		"""Set
 
@@ -386,7 +387,7 @@ class Parent(Base):
 					dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
-		if ta:
+		if ta is not undefined:
 			ta.extend(lTA)
 
 		# Else, run everything
@@ -402,7 +403,7 @@ class Parent(Base):
 	def update(self,
 		_id: str,
 		data: dict,
-		ta: Transaction | None = None
+		ta: Transaction = undefined
 	) -> dict | None:
 		"""Update
 
@@ -502,7 +503,7 @@ class Parent(Base):
 					dOldData[f] = mRet
 
 		# If we have a transaction passed in, extend it with ours
-		if ta:
+		if ta is not undefined:
 			ta.extend(lTA)
 
 		# Else, run everything

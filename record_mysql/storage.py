@@ -237,7 +237,7 @@ class Storage(_Storage):
 					return dRecord
 
 				# Return a new Data
-				return Data(self, _id, dRecord)
+				return Data(self, dRecord)
 
 			# If we have a cache
 			if self._cache:
@@ -362,7 +362,7 @@ class Storage(_Storage):
 			return lRecords
 
 		# Return a new Data
-		return [l and Data(self, l[0], l[1]) or None for l in lRecords]
+		return [m and Data(self, m) or None for m in lRecords]
 
 	def exists(self, _id: str) -> bool:
 		"""Exists
