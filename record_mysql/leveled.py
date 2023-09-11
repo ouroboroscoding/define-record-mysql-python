@@ -532,20 +532,88 @@ class Leveled(Base):
 			str[]
 		"""
 
-		# Set the filter values
-		lFilter = self._node and {'_value': filter} or filter
+		# If we only have a single node
+		if self._node:
 
-		# If there's a table
-		lIDs = [d['_parent'] for d in
-			self._table.select(
-				distinct = True,
-				fields = ['_parent'],
-				where = lFilter
-			)
-		]
+			# Fetch and return the IDs
+			return [d['_parent'] for d in
+				self._table.select(
+					distinct = True,
+					fields = ['_parent'],
+					where = { '_value': filter }
+				)
+			]
+
+		# Else, we have numerous fields
+		#	Init the columns and IDs
+		dColumns = {}
+		dComplex = {}
+		lsIDs = None
+
+		# First, go through each key of the filter and pull out all the ones
+		#	in this level
+		for k in list(filter.keys()):
+			if k in self._columns:
+				dColumns[k] = filter.pop(k)
+			elif k in self._complex:
+				dComplex[k] = filter.pop(k)
+			else:
+				raise KeyError(k, 'not a valid column')
+
+		# If there's any local columns
+		if dColumns:
+
+			# Find the IDs of the records with the given filter in the table,
+			#	then try to find the top level IDs they correspond to
+			lIDs = self._get_ids([
+				d[self._table._struct.key] for d in
+				self._table.select(
+					distinct = True,
+					fields = [ self._table._struct.key ],
+					where = dColumns
+				)
+			])
+
+			# If we got nothing, we will always get nothing
+			if not lIDs:
+				return []
+
+			# We got something, set the IDs
+			lsIDs = set(lIDs)
+
+		# If we have any complex
+		if dComplex:
+
+			# Go through each one
+			for k in dComplex:
+
+				# Call the child's filter
+				lIDs = self._complex[k].filter(dComplex[k])
+
+				# If we got nothing, we will always get nothing
+				if not lIDs:
+					return []
+
+				# If we got any IDs
+				if lIDs:
+
+					# If we currently have none, this is the starting point
+					if lsIDs is None:
+						lsIDs = set(lIDs)
+
+					# Else, only store the intersection of the previous IDs and
+					#	the new IDs, we only want records with all the data
+					else:
+						lsIDs = lsIDs.intersection(lIDs)
+
+		# If we got nothing
+		if not lsIDs:
+			return []
 
 		# Get the parent's IDs or return them as is
-		return self._parent and self._parent.get_ids(lIDs) or lIDs
+		return self._parent and \
+				self._parent.get_ids(list(lsIDs)) or \
+				list(lsIDs)
 
 	def get(self, _id: str) -> list[dict]:
 		"""Get

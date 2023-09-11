@@ -293,7 +293,55 @@ class Storage(_Storage):
 
 		# Else, if we have a filter
 		elif filter is not undefined:
-			pass
+
+			# Call the parents filter in order to get the IDs
+			lIDs = self._parent.filter(filter)
+
+			# If we got anything
+			if lIDs:
+
+				# If we have a cache
+				if self._cache:
+
+					# Try to get them from the cache
+					lRecords = self._cache.fetch(lIDs)
+
+					# Go through each record by index
+					for i in range(len(lRecords)):
+
+						# If we didn't get the record
+						if lRecords[i] is None:
+
+							# Fetch it from the system
+							dRecord = self._parent.get(lIDs[i])
+
+							# If it doesn't exist
+							if not dRecord:
+
+								# Mark it as missing so we don't overload the
+								#	system. Any future requests will return the
+								#	record as False
+								self._cache.add_missing(lIDs[i])
+
+							# Else, we have it
+							else:
+
+								# Store it for next time
+								self._cache.store(lIDs[i], dRecord)
+
+						# Else, if it's False, set it to None and move on, we
+						#	know this record does not exist
+						elif lRecords[i] == False:
+							lRecords[i] = None
+
+				# Else, we have no cache
+				else:
+
+					# Get the full record for each ID
+					lRecords = [
+						self._parent.get(sID) \
+						for sID in lIDs
+					]
 
 		# Else, fetch all or most records
 		else:
@@ -355,7 +403,7 @@ class Storage(_Storage):
 
 		# If we have nothing, return nothing
 		if not lRecords:
-			return None
+			return []
 
 		# If we want the records as is
 		if raw:
