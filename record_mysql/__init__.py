@@ -24,7 +24,8 @@ __all__ = [
 from record import Data
 
 # Local imports
-from .storage import Storage
-from .server import add_host, db_create, db_drop, escape, execute, insert, \
-					select, timestamp_timezone, verbose
-from .table import Literal
+from record_mysql.storage import Storage
+from record_mysql.server import \
+	add_host, db_create, db_drop, escape, execute, insert, select, \
+	timestamp_timezone, verbose
+from record_mysql.table import Literal

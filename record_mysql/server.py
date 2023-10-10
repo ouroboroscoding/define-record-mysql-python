@@ -35,7 +35,7 @@ __connections = {}
 __timestamp_timezone = '+00:00'
 
 # Verbose mode
-__verbose = True
+__verbose = False
 
 # constants
 MAX_RETRIES = 3

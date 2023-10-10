@@ -410,9 +410,6 @@ class Leveled(Base):
 					# Add the row to the list
 					lRet.append(dRow)
 
-					# Add the row to the return list
-					lRet.append(dRow)
-
 				# Else, we have more levels to go
 				else:
 
@@ -761,7 +758,7 @@ class Leveled(Base):
 			#	columns that were passed in
 			dRow = {
 				self._table._struct.key: self._table.uuid(),
-				'_parent': id,
+				'_parent': _id,
 				**{ k: d[k] for k in self._keys if k in d },
 				**{ k: d[k] for k in self._columns if k in d }
 			}
@@ -797,7 +794,7 @@ class Leveled(Base):
 		return lOldData or None
 
 	def update(self,
-		id: str,
+		_id: str,
 		data: list | dict,
 		ta: Transaction = undefined
 	) -> list | None:
@@ -807,7 +804,7 @@ class Leveled(Base):
 		ows that were overwritten if there's any changes
 
 		Arguments:
-			id (str): The ID to update records for
+			_id (str): The ID to update records for
 			data (list | dict): A list or dict representing a structure of \
 				data to be updated under the given ID
 			ta (Transaction): Optional, the open transaction to add new sql \
@@ -830,21 +827,21 @@ class Leveled(Base):
 			lValues = self._table.select(
 				fields = [*self._levels, '_value'],
 				orderby = self._levels,
-				where = { '_parent': id }
+				where = { '_parent': _id }
 			)
 
 			# If the data is not the same
 			if not compare(lValues, lData):
 
 				# Delete all rows associated with the parent
-				lTA.delete({ '_parent': id })
+				lTA.delete({ '_parent': _id })
 
 				# Go through each new row
 				for d in lData:
 
 					# Generate the SQL to insert the row with the parent ID
 					lTA.insert( values = combine(
-						d, { '_parent': id }
+						d, { '_parent': _id }
 					))
 
 				# Return the old records
@@ -855,7 +852,7 @@ class Leveled(Base):
 
 			# Store the old records
 			lOldData = self._table.select(
-				where = { '_parent': id },
+				where = { '_parent': _id },
 				orderby = self._levels
 			)
 
@@ -977,7 +974,7 @@ class Leveled(Base):
 					d[self._table._struct.key] = self._table.uuid()
 
 					# Add the parent
-					d['_parent'] = id
+					d['_parent'] = _id
 
 					# Add the create to the transactions
 					lTA.insert(d)

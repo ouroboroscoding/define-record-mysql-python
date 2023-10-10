@@ -381,7 +381,7 @@ class Table(object):
 				dMySQL = self._columns[f].special('mysql', default={})
 			except KeyError:
 				raise ValueError(
-					'record_myself.table._struct.create contains an ' \
+					'record_mysql.table._struct.create contains an ' \
 					'invalid field `%s` for `%s`.`%s`' % (
 						f, self._struct.db, self._struct.name
 					)
@@ -396,15 +396,18 @@ class Table(object):
 				dMySQL['type'] = 'text'
 
 			# Add the line
-			lFields.append('`%s` %s %s' % (
-				f,
-				('type' in dMySQL and dMySQL['type'] or \
-					_node_to_type(self._columns[f], self._struct.host)
-				),
-				('opts' in dMySQL and dMySQL['opts'] or \
-					(self._columns[f].optional() and 'null' or 'not null')
-				)
-			))
+			try:
+				lFields.append('`%s` %s %s' % (
+					f,
+					('type' in dMySQL and dMySQL['type'] or \
+						_node_to_type(self._columns[f], self._struct.host)
+					),
+					('opts' in dMySQL and dMySQL['opts'] or \
+						(self._columns[f].optional() and 'null' or 'not null')
+					)
+				))
+			except ValueError as e:
+				raise ValueError(f, e.args[0])
 
 		# Init the list of indexes
 		lIndexes = []
