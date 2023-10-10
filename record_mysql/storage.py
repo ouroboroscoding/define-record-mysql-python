@@ -104,8 +104,11 @@ class Storage(_Storage):
 			The ID of the added record
 		"""
 
-		# Add it to the value
-		value[self._key] = self.uuid()
+		# If we have no key
+		if self._key not in value:
+
+			# Create and add one
+			value[self._key] = self.uuid()
 
 		# Validate the data
 		if not self.valid(value):
@@ -173,6 +176,30 @@ class Storage(_Storage):
 		"""
 		return self._parent.count(filter)
 
+	def exists(self, _id: str, index = undefined) -> bool:
+		"""Exists
+
+		Returns true if a record with the given ID exists
+
+		Arguments:
+			_id (str): The unique ID of the record to check for
+			index (str): Optional, the name of the field to check against, \
+				works best if the field is a unique field/index
+
+		Returns:
+			bool
+		"""
+
+		# If we got no index
+		if index is undefined:
+			index = self.key
+
+		# Call the table directly
+		return self._parent._table.select(
+			fields = [ self._key ],
+			where = { index: _id }
+		) and True or False
+
 	def fetch(self,
 		_id: str | list[str] = undefined,
 		filter: dict = undefined,
@@ -234,7 +261,10 @@ class Storage(_Storage):
 
 				# If we want the record as is
 				if raw:
-					return dRecord
+					if raw is True:
+						return dRecord
+					else:
+						return { k:v for k,v in dRecord.items() if k in raw }
 
 				# Return a new Data
 				return Data(self, dRecord)
@@ -300,6 +330,21 @@ class Storage(_Storage):
 			# If we got anything
 			if lIDs:
 
+				# If all we wanted was IDs
+				if raw and \
+					raw is not True and \
+					len(raw) == 1 and \
+					raw[0] == self._key:
+
+						print('we only wanted IDs')
+
+						# Return the IDs
+						return limit is 1 and \
+								{ self._key: lIDs[0] } or \
+								[ { self._key: id_ } for id_ in lIDs ]
+
+				print('we DID NOT only want IDs')
+
 				# If we have a cache
 				if self._cache:
 
@@ -348,7 +393,7 @@ class Storage(_Storage):
 
 			# Fetch all the IDs avaialble first
 			lIDs = self._parent._table.select(
-				fields = [self._key],
+				fields = [ self._key ],
 				limit = limit
 			)
 
@@ -407,33 +452,21 @@ class Storage(_Storage):
 
 		# If we want the records as is
 		if raw:
-			return lRecords
+			if raw is True:
+				return lRecords
+			else:
+				return [
+					{ k:v for k,v in d.items() if k in raw } \
+					for d in lRecords
+				]
 
 		# Return a new Data
 		return [m and Data(self, m) or None for m in lRecords]
 
-	def exists(self, _id: str) -> bool:
-		"""Exists
-
-		Returns true if a record with the given ID exists
-
-		Arguments:
-			_id (str): The unique ID of the record to check for
-
-		Returns:
-			bool
-		"""
-
-		# Call the table directly
-		return self._parent._table.select(
-			fields = [ self._key ],
-			where = { self._key: _id }
-		) and True or False
-
 	def insert(self,
 		value: dict | list = {},
 		conflict: str = 'error',
-		revisions: dict = None
+		revision_info: dict = undefined
 	) -> Data | list:
 		"""Insert
 
@@ -443,8 +476,8 @@ class Storage(_Storage):
 			value (dict|dict[]): The initial values to set for the record
 			conflict (str|list): Must be one of 'error', 'ignore', 'replace', \
 				or a list of fields to update
-			revisions (dict): Data needed to store a change record, is \
-				dependant on the 'revisions' config value
+			revision_info (dict): Optional, additional information to store \
+				with the revision record
 
 		Returns:
 			Data
@@ -453,18 +486,18 @@ class Storage(_Storage):
 		# If we have one
 		if isinstance(value, dict):
 			value['_id'] = self.add(
-				value, conflict, revisions
+				value, conflict, revision_info
 			)
-			return Data(value)
+			return Data(self, value)
 
 		# Else, if it's numerous
 		elif isinstance(value, list):
 			l = []
 			for d in value:
 				d['_id'] = self.add(
-					d, conflict, revisions
+					d, conflict, revision_info
 				)
-				l.append(Data(value))
+				l.append(Data(self, value))
 			return l
 
 	def install(self) -> bool:
@@ -488,13 +521,13 @@ class Storage(_Storage):
 		"""Remove
 
 		Removes one or more records from storage by ID or filter, and returns \
-		the the record or records removed
+		the record or records removed
 
 		Arguments:
 			_id (str): Optional, the ID(s) to remove
 			filter (dict): Optional, data to filter what gets deleted
-			revision_info (dict): Optional, additional data needed to store a \
-				revision record. Is dependant on the 'revision' config value
+			revision_info (dict): Optional, additional information to store \
+				with the revision record
 
 		Returns:
 			dict | dict[]

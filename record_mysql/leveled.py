@@ -21,11 +21,18 @@ import undefined
 
 # Python imports
 from copy import copy
+from typing import List
 
 # Local imports
 from record_mysql.base import Base
 from record_mysql.table import Table
 from record_mysql.transaction import Transaction
+
+# Mapping / Constants
+_types = {
+	'Array': 'a',
+	'Hash': 'h'
+}
 
 class Leveled(Base):
 	"""Leveled
@@ -89,8 +96,8 @@ class Leveled(Base):
 
 				# Add a column for the new array. Use the zero just to save
 				#	a little memory
-				self._levels.append('_a_%d' % len(self._levels))
-				self._keys[self._levels[-1]] = self._keys['_a_0']
+				self._levels.append('_%s_%d' % (_types[sChild], len(self._levels)))
+				self._keys[self._levels[-1]] = self._keys['_%s_0' % _types[sChild]]
 
 				# Set the child to the new child and loop back around
 				oChild = oChild.child()
@@ -615,38 +622,82 @@ class Leveled(Base):
 				self._parent.get_ids(list(lsIDs)) or \
 				list(lsIDs)
 
-	def get(self, _id: str) -> list[dict]:
+	def get(self, _id: str | List[str]) -> dict | List[dict]:
 		"""Get
 
 		Retrieves all the rows associated with the given ID
 
 		Arguments:
-			_id (str): The ID to fetch rows for
+			_id (str | str[]): The ID to fetch rows for
 
 		Returns:
-			dict[]
+			dict | dict[]
 		"""
 
-		# Find the records ordered by the levels and store them by unique ID
-		dRows = {d[self._table._struct.key]:d for d in self._table.select(
-			where = { '_parent': _id },
-			orderby = self._levels
-		)}
+		# If we are getting a single set of rows
+		if isinstance(_id, str):
 
-		# Go through each complex record
-		for f in self._complex:
+			# Find the records ordered by the levels and store them by unique ID
+			dRows = {d[self._table._struct.key]:d for d in self._table.select(
+				where = { '_parent': _id },
+				orderby = self._levels
+			)}
 
-			# For each row
-			for sID in dRows:
+			# Go through each complex record
+			for f in self._complex:
 
-				# Call the child get, passing along the ID, then store the
-				#	results by that ID
-				dRows[sID][f] = self._complex[f].get(sID)
+				# For each row
+				for sID in dRows:
 
-		# Now that we have all the data, split it up by the levels and return it
-		return self._elevate(
-			list(dRows.values())
-		)
+					# Call the child get, passing along the ID, then store the
+					#	results by that ID
+					dRows[sID][f] = self._complex[f].get(sID)
+
+			# Now that we have all the data, split it up by the levels and return it
+			return self._elevate(
+				list(dRows.values())
+			)
+
+		# Else, we are getting rows for multiple parents
+		else:
+
+			# Get all rows for all parents
+			lRows = self._table.select(
+				where = { '_parent': _id },
+				orderby = self._levels
+			)
+
+			# Go through each complex record
+			for f in self._complex:
+
+				# Get all possible rows for all the IDs
+				dComplex = self._complex[f].get([
+					d[self._table._struct.key] for d in lRows
+				])
+
+				# Go through each row and add the values found for the complex
+				#	node
+				for d in lRows:
+					try: d[f] = dComplex[d['_id']]
+					except KeyError: pass
+
+				# Clear the memory immediately
+				del dComplex
+
+			# Group the rows by the parent
+			dParents = {}
+			for d in lRows:
+				try:
+					dParents[d['_parent']].append(d)
+				except KeyError:
+					dParents[d['_parent']] = [d]
+
+			# Now go through each list and elevate it
+			for k in dParents:
+				dParents[k] = self._elevate(dParents[k])
+
+			# Return all the data
+			return dParents
 
 	def set(self,
 		_id: str,

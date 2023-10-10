@@ -22,13 +22,13 @@ setup(
 	packages=['record_mysql'],
 	python_requires='>=3.10',
 	install_requires=[
-		"arrow>=1.2.2,<1.3",
-		"define-oc>=1.0.0,<1.1",
-		"jobject>=1.0.0,<1.1",
-		"jsonb>=1.0.0,<1.1",
-		"PyMySQL>=1.0.2,<1.1",
-		"record-oc>=1.0.0,<1.1",
-		"undefined-oc>=1.0.0,<1.1"
+		'arrow>=1.2.2,<1.3',
+		'define-oc>=1.0.0,<1.1',
+		'jobject>=1.0.2,<1.1',
+		'jsonb>=1.0.0,<1.1',
+		'PyMySQL>=1.0.2,<1.1',
+		'record-oc>=1.0.0,<1.1',
+		'undefined-oc>=1.0.0,<1.1'
 	],
 	test_suite='tests',
 	zip_safe=True

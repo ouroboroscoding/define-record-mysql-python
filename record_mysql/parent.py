@@ -18,6 +18,9 @@ from jobject import jobject
 from tools import merge, without
 import undefined
 
+# Python imports
+from typing import List
+
 # Local imports
 from record_mysql.base import Base
 from record_mysql.table import Table
@@ -321,50 +324,84 @@ class Parent(Base):
 		# Return whatever we got as a plain list
 		return list(lsIDs)
 
-	def get(self, _id: str) -> list[dict]:
+	def get(self, _id: str | List[str]) -> dict | List[dict]:
 		"""Get
 
 		Retrieves all the rows associated with the given ID
 
 		Arguments:
-			id (str): The ID to fetch rows for
+			id (str | str[]): The ID(s) to fetch row(s) for
 
 		Returns:
-			dict[]
+			dict | dict[]
 		"""
 
 		# Init the return value
 		dRet = {}
 
+		# Are we fetching a single ID or multiple
+		bSingle = isinstance(_id, str)
+
 		# If we have a table
 		if self._table:
 
-			# Find the rows
-			dRow = self._table.select(
-				where = { self._table._struct.key: _id },
-				limit = 1
-			)
+			# If we only have one
+			if bSingle:
 
-			# If we got anything, update the return
-			if dRow:
-
-				# If we have a parent, use the row minus the ID, else the row
-				dRet.update(self._has_parent and \
-					without(dRow, self._table._struct.key) or
-					dRow
+				# Find the row
+				dRow = self._table.select(
+					where = { self._table._struct.key: _id },
+					limit = 1
 				)
 
-		# Go through each complex record
+				# If we got anything, update the return
+				if dRow:
+
+					# If we have a parent, use the row minus the ID, else the
+					#	row
+					dRet = self._has_parent and \
+						without(dRow, self._table._struct.key) or \
+						dRow
+
+			# Else, we have multiple
+			else:
+
+				# Find the rows
+				lRows = self._table.select(
+					where = { self._table._struct.key: _id }
+				)
+
+				# Set each one by ID
+				if lRows:
+					dRet = {
+						d[self._table._struct.key]: self._has_parent and \
+							without(d, self._table._struct.key) or d \
+						for d in lRows
+					}
+
+		# Go through each complex field
 		for f in self._complex:
 
 			# Call the child get, passing along the ID, and store the results
 			mComplex = self._complex[f].get(_id)
 
-			# If we got anything, add it to the return
-			if mComplex:
+			# If we got nothing
+			if not mComplex:
+				continue
+
+			# If we only have one
+			if bSingle:
+
+				# If we got anything, add it to the return
 				dRet[f] = mComplex
 
-		# Return the row data
+			# Else, if we have multiple
+			else:
+				for k in mComplex:
+					try: dRet[k][f] = mComplex[k]
+					except KeyError: dRet[k] = { f: mComplex[k] }
+
+		# Return the row(s) data
 		return dRet
 
 	def set(self,
