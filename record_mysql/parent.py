@@ -68,16 +68,18 @@ class Parent(Base):
 			# Get the class name
 			sClass = details[f].class_name()
 
-			# If it's a Node
-			if sClass == 'Node':
+			# Check for a special section
+			dMySQL = details[f].special('mysql', default = {})
+
+			# If it's a Node or meant to be stored as JSON
+			if sClass == 'Node' or \
+				('json' in dMySQL and dMySQL['json'] is True):
 
 				# Add the node to the columns list under its name
 				self._columns[f] = details[f]
 
-			# Else, it's a complex type
+			# Else, it's a complex type, store it for later
 			else:
-
-				# Store it for later
 				self._complex[f] = sClass
 
 		# If we have any columns

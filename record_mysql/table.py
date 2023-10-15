@@ -392,7 +392,7 @@ class Table(object):
 				dMySQL = { 'type': dMySQL }
 
 			# If the JSON flag is set, change the type to 'text'
-			if 'json' in dMySQL in dMySQL['json']:
+			if 'json' in dMySQL and dMySQL['json']:
 				dMySQL['type'] = 'text'
 
 			# Add the line
@@ -1140,7 +1140,7 @@ class Table(object):
 
 			# Add it to the list of statements
 			lStatements.append(
-				'WHERE %s' % ',\n'.join(lWhere)
+				'WHERE %s' % '\nAND '.join(lWhere)
 			)
 
 		# If there's anything to group by

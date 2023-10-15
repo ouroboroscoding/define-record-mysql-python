@@ -68,15 +68,12 @@ class Leveled(Base):
 		# Call the Base constructor
 		super(Leveled, self).__init__(name, parent)
 
-		# Get the child associated with this array, and it's class name
-		oChild = details.child()
-		sChild = oChild.class_name()
-
 		# By default, mark this as a complex array
 		self._node: bool = False
 
 		# Add the key fields to the columns
-		self._keys[parent._table._struct.key] = define.Node({ '__type__': 'uuid'})
+		self._keys[parent._table._struct.key] = \
+			define.Node({ '__type__': 'uuid'})
 		self._keys['_parent'] = define.Node({ '__type__': 'uuid' })
 
 		# Init the number of levels and the first key based on whether we have
@@ -88,16 +85,26 @@ class Leveled(Base):
 			self._levels = ['_h_0']
 			self._keys['_h_0'] = details.key()
 
+		# Get the child associated with this array/hash, and it's class name
+		oChild = details.child()
+		sChild = oChild.class_name()
+
 		# Loop until we break
 		while True:
 
 			# If it's an array
 			if sChild in ['Array', 'Hash']:
 
-				# Add a column for the new array. Use the zero just to save
-				#	a little memory
-				self._levels.append('_%s_%d' % (_types[sChild], len(self._levels)))
-				self._keys[self._levels[-1]] = self._keys['_%s_0' % _types[sChild]]
+				# Add a column to the levels for the new array or hash
+				self._levels.append(
+					'_%s_%d' % (_types[sChild], len(self._levels))
+				)
+
+				# If it's an array, create an unsigned int node, otherwise use
+				#	the key of the child
+				self._keys[self._levels[-1]] = sChild == 'Array' and \
+					define.Node({ '__type__': 'uint' }) or \
+					oChild.key()
 
 				# Set the child to the new child and loop back around
 				oChild = oChild.child()

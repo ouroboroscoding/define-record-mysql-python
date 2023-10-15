@@ -82,7 +82,7 @@ class Storage(_Storage):
 
 		# If cache is enabled
 		if oCache['implementation']:
-			self._cache: Cache = Cache.generate(oCache)
+			self._cache: Cache = Cache.factory(oCache)
 
 	def add(self,
 		value: dict,
@@ -335,8 +335,6 @@ class Storage(_Storage):
 					raw is not True and \
 					len(raw) == 1 and \
 					raw[0] == self._key:
-
-						print('we only wanted IDs')
 
 						# Return the IDs
 						return limit is 1 and \
