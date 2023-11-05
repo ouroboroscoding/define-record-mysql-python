@@ -718,7 +718,7 @@ class Table(object):
 
 					# Append the index
 					lIndexes.append('%s `%s` (%s)' % (
-						sIndexType, mValue.name, sIndexFields
+						sIndexType, sName, sIndexFields
 					))
 
 				# Else, the index is invalid
