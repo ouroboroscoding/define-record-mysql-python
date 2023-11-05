@@ -109,13 +109,10 @@ class Parent(Base):
 				'db': 'test',
 				'key': self._has_parent and dParent.key or parent,
 				'host': '_',
-				'indexes': [],
+				'indexes': {},
 				'revisions': False,
 				'name': name
 			})
-
-			# Get the __mysql__ section
-			dMySQL = details.special('mysql')
 
 			# If there's a parent
 			if self._has_parent:
@@ -135,9 +132,7 @@ class Parent(Base):
 				if 'indexes' in dMySQL:
 
 					# Remove them and use them to extend the main struct
-					dStruct.indexes.extend(
-						dMySQL.pop('indexes')
-					)
+					merge(dStruct.indexes, dMySQL.pop('indexes'))
 
 				# Merge whatever remains
 				merge(dStruct, dMySQL)
@@ -618,6 +613,3 @@ class Parent(Base):
 
 		# Return success or failure
 		return dOldData
-
-# Add the Parent type to the base types as 'Parent'
-Parent.add_type('Parent')

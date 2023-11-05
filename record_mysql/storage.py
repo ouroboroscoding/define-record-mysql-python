@@ -16,15 +16,18 @@ __all__ = ['Storage']
 from record import Cache, CONFLICT, Data, Storage as _Storage
 import undefined
 
+# Python imports
+from sys import stderr
+from typing import List
+
 # Local imports
 from record_mysql.parent import Parent
-from record_mysql.leveled import Leveled	# This is necessary only to make
-											# sure the class is added to the
-											# registry
+from record_mysql.leveled import Leveled
 
-# TESTING
-from pprint import pprint
-# TESTING
+# Add the Parent, Array, and Hash types to the base
+Parent.add_type('Parent')
+Leveled.add_type('Array')
+Leveled.add_type('Hash')
 
 class Storage(_Storage):
 	"""Storage
@@ -156,7 +159,7 @@ class Storage(_Storage):
 
 		# If we have a cache
 		if self._cache:
-			self._cache.store(value[self._key], value)
+			self._cache.set(value[self._key], value)
 
 		# Return the ID of the new record
 		return value[self._key]
@@ -200,39 +203,160 @@ class Storage(_Storage):
 			where = { index: _id }
 		) and True or False
 
-	def fetch(self,
-		_id: str | list[str] = undefined,
-		filter: dict = undefined,
-		limit: int | tuple = undefined,
-		raw: bool | list[str] = False,
+	def filter(self,
+		fields: dict,
+		raw: bool | List[str] = False,
 		options: dict = None
-	) -> None | Data | list[Data] | dict | list[dict]:
-		"""Fetch
+	) -> List[Data] | List[dict]:
+		"""Filter
 
-		Gets one, many, or all records from the storage system associated with \
-		the class instance through one or more checks against IDs, filters, \
-		and limits. Passing no arguments at all will return every record \
-		available
+		Gets records based on specific data fields
 
 		Arguments:
-			_id: (str | str[]): The ID or IDs used to get the records
-			filter (dict): Data to filter the count of records by
-			limit (int | tuple | None): The limit to set for the fetch
-			raw (bool): If true, dicts are returned instead of Data instances
+			fields (dict): Field and values to filter the data by
+			raw (bool | str[]): Return raw data instead of Data instances
 			options (dict): Custom options processed by the storage system
 
 		Returns:
-			None | Data | Data[] | dict | dict[]
+			Data[] | dict[]
 		"""
 
 		# Init the records
 		lRecords = None
 
-		# If we got one or more IDs
-		if _id is not undefined:
+		# Call the parents filter in order to get the IDs
+		lIDs = self._parent.filter(fields)
 
-			# If we have just one
-			if isinstance(_id, str):
+		# If we got anything
+		if lIDs:
+
+			# If all we wanted was IDs
+			if raw and \
+				raw is not True and \
+				len(raw) == 1 and \
+				raw[0] == self._key:
+
+					# Return the IDs
+					return [ { self._key: id_ } for id_ in lIDs ]
+
+			# If we have a cache
+			if self._cache:
+
+				# Try to get them from the cache
+				lRecords = self._cache.fetch(lIDs)
+
+				# Go through each record by index
+				for i in range(len(lRecords)):
+
+					# If we didn't get the record
+					if lRecords[i] is None:
+
+						# Fetch it from the system
+						dRecord = self._parent.get(lIDs[i])
+
+						# If it doesn't exist
+						if not dRecord:
+
+							# Mark it as missing so we don't overload the
+							#	system. Any future requests will return the
+							#	record as False
+							self._cache.add_missing(lIDs[i])
+
+						# Else, we have it
+						else:
+
+							# Store it for next time
+							self._cache.set(lIDs[i], dRecord)
+
+					# Else, if it's False, set it to None and move on, we
+					#	know this record does not exist
+					elif lRecords[i] == False:
+						lRecords[i] = None
+
+			# Else, we have no cache
+			else:
+
+				# Get the full record for each ID
+				lRecords = [
+					self._parent.get(sID) \
+					for sID in lIDs
+				]
+
+		# If we have nothing, return nothing
+		if not lRecords:
+			return []
+
+		# If we want the records as is
+		if raw:
+			if raw is True:
+				return lRecords
+			else:
+				return [
+					{ k:v for k,v in d.items() if k in raw } \
+					for d in lRecords
+				]
+
+		# Return a new Data
+		return [m and Data(self, m) or None for m in lRecords]
+
+	def get(self,
+		_id: str | List[str] = undefined,
+		index = undefined,
+		raw = False,
+		options: dict = undefined
+	) -> Data | List[Data] | dict | List[dict]:
+		"""Get
+
+		Gets one, many, or all records from the storage system associated with \
+		the class instance through checks against IDs, either primary, no \
+		`index`, or secondary by passing the name to `index`. Passing no \
+		arguments at all will return every record. Setting raw to True, or a \
+		list of fields, will return a dict or dicts instead of Data objects
+
+		Arguments:
+			_id (str | str[] | tuple | tuple[]): The ID or IDs used to get the \
+				records. Don't set to get all records
+			index (str): The name of the index to use to fetch the data \
+				instead of the primary key
+			raw (bool | str[]): Return raw data instead of Data instances
+			options (dict): Custom options processed by the storage system
+
+		Returns:
+			Data | Data[] | dict | dict[]
+		"""
+
+		# Init the records
+		lRecords = None
+
+		# If there's no IDs
+		if _id is undefined:
+
+			# If we have no cache
+			if not self._cache:
+
+				# If we have no complex data
+				if not self._parent._complex:
+
+					# Store all records
+					lRecords = self._parent._table.select()
+
+		# Else, we have IDs
+		else:
+			lIDs = _id
+
+		# If we don't have records
+		if not lRecords:
+
+			# If we don't have IDs
+			if not lIDs:
+
+				# Fetch all the IDs
+				lIDs = self._parent._table.select(
+					fields = [ self._key ]
+				)
+
+			# If we have just one and we have no index
+			if isinstance(lIDs, str) and index is undefined:
 
 				# Init the record
 				dRecord = None
@@ -241,13 +365,13 @@ class Storage(_Storage):
 				if self._cache:
 
 					# Try to get it from the cache
-					dRecord = self._cache.fetch(_id)
+					dRecord = self._cache.get(lIDs)
 
 				# If we don't have the record
 				if not dRecord:
 
 					# Fetch it from the system
-					dRecord = self._parent.get(_id)
+					dRecord = self._parent.get(lIDs)
 
 					# If it doesn't exist
 					if not dRecord:
@@ -257,7 +381,7 @@ class Storage(_Storage):
 					if self._cache and dRecord:
 
 						# Store it in the cache under the ID
-						self._cache.store(_id, dRecord)
+						self._cache.set(lIDs, dRecord)
 
 				# If we want the record as is
 				if raw:
@@ -273,7 +397,7 @@ class Storage(_Storage):
 			if self._cache:
 
 				# Try to get them from the cache
-				lRecords = self._cache.fetch(_id)
+				lRecords = self._cache.fetch(lIDs, index = index)
 
 				# Go through each record by index
 				for i in range(len(lRecords)):
@@ -281,8 +405,87 @@ class Storage(_Storage):
 					# If we didn't get the record
 					if lRecords[i] is None:
 
+						# If we have an index
+						if index is not undefined:
+
+							# If the index doesn't exist in the record
+							if index not in self._parent.indexes:
+								raise IndexError(
+									index,
+									'Cache index "%s" does not exist in ' \
+									'MySQL indexes' % index
+								)
+
+							# Simplify the code so it's not so long
+							dIndex = self._parent.indexes[index]
+
+							# If it's not a unique index
+							if not dIndex['unique']:
+								raise IndexError(
+									index,
+									'Cache index "%s" is not unique in MySQL' %
+										index
+								)
+
+							# If the index has only one field
+							if len(dIndex['fields']) == 1:
+
+								# If the value passed is a tuple, something is
+								#	wrong
+								if isinstance(lIDs[i], tuple):
+									raise IndexError(
+										index,
+										'Index "%s" requires only one field ' \
+										'but a tuple was passed' % index
+									)
+
+								# Create the filter using the one field
+								dWhere = { dIndex['fields'][0]: lIDs[i] }
+
+							# Else, we have multiple fields in the index
+							else:
+
+								# If we didn't get a tuple
+								if not isinstance(lIDs[i], tuple):
+									raise IndexError(
+										index,
+										'Index "%s" requires multiple fields ' \
+										'but no tuple was passed' % index
+									)
+
+								# If the counts do not match
+								if len(lIDs) != len(dIndex['fields']):
+									raise IndexError(
+										index,
+										'Index "%s" requires %d fields but' \
+										'only received %d' % (
+											index,
+											len(dIndex['fields']),
+											len(lIDs)
+										)
+									)
+
+								# Init the filter
+								dWhere = {}
+
+								# Go through each field and add it
+								for i in range(len(lIDs)):
+									dWhere[dIndex['fields'][i]] = lIDs[i]
+
+							# Fetch the ID using the filter
+							sID = self._parent._table.select(
+								fields = [ self._key ],
+								where = dWhere,
+								limit = 1
+							)
+
+						# Else, no index
+						else:
+
+							sID = lIDs[i]
+
 						# Fetch it from the system
-						dRecord = self._parent.get(_id[i])
+						dRecord = self._parent.get(sID)
 
 						# If it doesn't exist
 						if not dRecord:
@@ -290,159 +493,47 @@ class Storage(_Storage):
 							# Mark it as missing so we don't overload the
 							#	system. Any future requests will return the
 							#	record as False
-							self._cache.add_missing(_id[i])
+							self._cache.add_missing(sID)
 
 						# Else, we have it
 						else:
 
 							# Store it for next time
-							self._cache.store(_id[i], dRecord)
+							self._cache.set(sID, dRecord)
 
 					# Else, if it's False, set it to None and move on, we know
 					#	this record does not exist
 					elif lRecords[i] == False:
 						lRecords[i] = None
 
-			# Else, we have no cache, and want all records, this is super
-			#	inefficient, but really there is no reason to not use a cache
-			#	except in very early development
+			# Else, we have no cache
 			else:
 
-				# Init the return
-				lRecords = []
+				# If an index was passed
+				if index is not undefined:
+					raise ValueError(
+						'Record-MySQL does not currently support getting by' \
+						'index on Records without a cache'
+					)
 
-				# Go through each ID
-				for sID in _id:
+				# If we have no complex
+				if not self._parent._complex:
 
-					# Fetch the record from the DB, store it even if it's not
-					#	found
-					lRecords.append([
-						sID,
-						self._parent.get(sID)
-					])
+					# Fetch and store all records by ID
+					lRecords = self._parent._table.select(
+						where = { self._key: lIDs }
+					)
 
-		# Else, if we have a filter
-		elif filter is not undefined:
-
-			# Call the parents filter in order to get the IDs
-			lIDs = self._parent.filter(filter)
-
-			# If we got anything
-			if lIDs:
-
-				# If all we wanted was IDs
-				if raw and \
-					raw is not True and \
-					len(raw) == 1 and \
-					raw[0] == self._key:
-
-						# Return the IDs
-						return limit is 1 and \
-								{ self._key: lIDs[0] } or \
-								[ { self._key: id_ } for id_ in lIDs ]
-
-				print('we DID NOT only want IDs')
-
-				# If we have a cache
-				if self._cache:
-
-					# Try to get them from the cache
-					lRecords = self._cache.fetch(lIDs)
-
-					# Go through each record by index
-					for i in range(len(lRecords)):
-
-						# If we didn't get the record
-						if lRecords[i] is None:
-
-							# Fetch it from the system
-							dRecord = self._parent.get(lIDs[i])
-
-							# If it doesn't exist
-							if not dRecord:
-
-								# Mark it as missing so we don't overload the
-								#	system. Any future requests will return the
-								#	record as False
-								self._cache.add_missing(lIDs[i])
-
-							# Else, we have it
-							else:
-
-								# Store it for next time
-								self._cache.store(lIDs[i], dRecord)
-
-						# Else, if it's False, set it to None and move on, we
-						#	know this record does not exist
-						elif lRecords[i] == False:
-							lRecords[i] = None
-
-				# Else, we have no cache
+				# Else, get each record one at a time and add it to the list
+				#	whether it exists or not. We print a warning because this
+				#	really shouldn't be done.
 				else:
-
-					# Get the full record for each ID
-					lRecords = [
-						self._parent.get(sID) \
-						for sID in lIDs
-					]
-
-		# Else, fetch all or most records
-		else:
-
-			# Fetch all the IDs avaialble first
-			lIDs = self._parent._table.select(
-				fields = [ self._key ],
-				limit = limit
-			)
-
-			# If we got anything
-			if lIDs:
-
-				# Flatten the list
-				lIDs = [d[self._key] for d in lIDs]
-
-				# If we have a cache
-				if self._cache:
-
-					# Try to get them from the cache
-					lRecords = self._cache.fetch(lIDs)
-
-					# Go through each record by index
-					for i in range(len(lRecords)):
-
-						# If we didn't get the record
-						if lRecords[i] is None:
-
-							# Fetch it from the system
-							dRecord = self._parent.get(lIDs[i])
-
-							# If it doesn't exist
-							if not dRecord:
-
-								# Mark it as missing so we don't overload the
-								#	system. Any future requests will return the
-								#	record as False
-								self._cache.add_missing(lIDs[i])
-
-							# Else, we have it
-							else:
-
-								# Store it for next time
-								self._cache.store(lIDs[i], dRecord)
-
-						# Else, if it's False, set it to None and move on, we know
-						#	this record does not exist
-						elif lRecords[i] == False:
-							lRecords[i] = None
-
-				# Else, we have no cache
-				else:
-
-					# Get the full record for each ID
-					lRecords = [
-						self._parent.get(sID) \
-						for sID in lIDs
-					]
+					print(
+						'WARNING: Fetching complex data with no cache',
+						file = stderr
+					)
+					for sID in lIDs:
+						lRecords.append(self._parent.get(sID))
 
 		# If we have nothing, return nothing
 		if not lRecords:
@@ -705,7 +796,7 @@ class Storage(_Storage):
 			if self._cache:
 
 				# Reset the cache
-				self._cache.store(_id, full or self._parent.get(_id))
+				self._cache.set(_id, full or self._parent.get(_id))
 
 		# Run the transactions
 		if not lTA.run():

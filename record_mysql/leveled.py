@@ -177,11 +177,12 @@ class Leveled(Base):
 			],
 			'db': dParent.db,
 			'host': dParent.host,
-			'indexes': [{
-				'name': 'parent_index',
-				'fields': ['_parent', *self._levels],
-				'type': 'unique'
-			}],
+			'indexes': {
+				'parent_index': {
+					'fields': ['_parent', *self._levels],
+					'type': 'unique'
+				}
+			},
 			'key': (self._node == False) and dParent.key or False,
 			'revisions': False,
 			'name': '%s_%s' % (dParent.name, name)
@@ -196,9 +197,7 @@ class Leveled(Base):
 			if 'indexes' in dMySQL:
 
 				# Remove them and use them to extend the main struct
-				dStruct.indexes.extend(
-					dMySQL.pop('indexes')
-				)
+				merge(dStruct.indexes, dMySQL.pop('indexes'))
 
 			# Merge whatever remains
 			merge(dStruct, dMySQL)
@@ -1019,7 +1018,3 @@ class Leveled(Base):
 
 		# Return the old data
 		return lOldData or None
-
-# Add the Array and Hash types to the base
-Leveled.add_type('Array')
-Leveled.add_type('Hash')
