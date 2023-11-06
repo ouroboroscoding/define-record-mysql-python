@@ -355,8 +355,8 @@ class Storage(_Storage):
 					fields = [ self._key ]
 				)
 
-			# If we have just one and we have no index
-			if isinstance(lIDs, str) and index is undefined:
+			# If we have just one
+			if isinstance(lIDs, str):
 
 				# Init the record
 				dRecord = None
@@ -365,13 +365,21 @@ class Storage(_Storage):
 				if self._cache:
 
 					# Try to get it from the cache
-					dRecord = self._cache.get(lIDs)
+					dRecord = self._cache.get(lIDs, index = index)
 
 				# If we don't have the record
 				if not dRecord:
 
+					# If we have an index
+					if index is not undefined:
+						sID = self._get_secondary(lIDs, index)
+
+					# Else, no index
+					else:
+						sID = lIDs
+
 					# Fetch it from the system
-					dRecord = self._parent.get(lIDs)
+					dRecord = self._parent.get(sID)
 
 					# If it doesn't exist
 					if not dRecord:
@@ -397,7 +405,7 @@ class Storage(_Storage):
 			if self._cache:
 
 				# Try to get them from the cache
-				lRecords = self._cache.fetch(lIDs, index = index)
+				lRecords = self._cache.get(lIDs, index = index)
 
 				# Go through each record by index
 				for i in range(len(lRecords)):
@@ -407,81 +415,10 @@ class Storage(_Storage):
 
 						# If we have an index
 						if index is not undefined:
-
-							# If the index doesn't exist in the record
-							if index not in self._parent.indexes:
-								raise IndexError(
-									index,
-									'Cache index "%s" does not exist in ' \
-									'MySQL indexes' % index
-								)
-
-							# Simplify the code so it's not so long
-							dIndex = self._parent.indexes[index]
-
-							# If it's not a unique index
-							if not dIndex['unique']:
-								raise IndexError(
-									index,
-									'Cache index "%s" is not unique in MySQL' %
-										index
-								)
-
-							# If the index has only one field
-							if len(dIndex['fields']) == 1:
-
-								# If the value passed is a tuple, something is
-								#	wrong
-								if isinstance(lIDs[i], tuple):
-									raise IndexError(
-										index,
-										'Index "%s" requires only one field ' \
-										'but a tuple was passed' % index
-									)
-
-								# Create the filter using the one field
-								dWhere = { dIndex['fields'][0]: lIDs[i] }
-
-							# Else, we have multiple fields in the index
-							else:
-
-								# If we didn't get a tuple
-								if not isinstance(lIDs[i], tuple):
-									raise IndexError(
-										index,
-										'Index "%s" requires multiple fields ' \
-										'but no tuple was passed' % index
-									)
-
-								# If the counts do not match
-								if len(lIDs) != len(dIndex['fields']):
-									raise IndexError(
-										index,
-										'Index "%s" requires %d fields but' \
-										'only received %d' % (
-											index,
-											len(dIndex['fields']),
-											len(lIDs)
-										)
-									)
-
-								# Init the filter
-								dWhere = {}
-
-								# Go through each field and add it
-								for i in range(len(lIDs)):
-									dWhere[dIndex['fields'][i]] = lIDs[i]
-
-							# Fetch the ID using the filter
-							sID = self._parent._table.select(
-								fields = [ self._key ],
-								where = dWhere,
-								limit = 1
-							)
+							sID = self._get_secondary(lIDs[i], index)
 
 						# Else, no index
 						else:
-
 							sID = lIDs[i]
 
 						# Fetch it from the system
@@ -551,6 +488,92 @@ class Storage(_Storage):
 
 		# Return a new Data
 		return [m and Data(self, m) or None for m in lRecords]
+
+	def _get_secondary(self, _id: any, index: str) -> str:
+		"""_ Get Secondary
+
+		Gets the ID associated with a secondary unique index
+
+		Arguments:
+			_id (any): The value(s) used to make the unique index
+			index (str): The name of the index to fetch
+
+		Returns:
+			str
+		"""
+
+		try:
+
+			# Get the index from the parent
+			dIndex = self._parent.indexes[index]
+
+		# If the index doesn't exist in the record
+		except KeyError:
+			raise IndexError(
+				index,
+				'Cache index "%s" does not exist in ' \
+				'MySQL indexes' % index
+			)
+
+		# If it's not a unique index
+		if not dIndex['unique']:
+			raise IndexError(
+				index,
+				'Cache index "%s" is not unique in MySQL' %
+					index
+			)
+
+		# If the index has only one field
+		if len(dIndex['fields']) == 1:
+
+			# If the value passed is a tuple, something is
+			#	wrong
+			if isinstance(_id, tuple):
+				raise IndexError(
+					index,
+					'Index "%s" requires only one field ' \
+					'but a tuple was passed' % index
+				)
+
+			# Create the filter using the one field
+			dWhere = { dIndex['fields'][0]: _id }
+
+		# Else, we have multiple fields in the index
+		else:
+
+			# If we didn't get a tuple
+			if not isinstance(_id, tuple):
+				raise IndexError(
+					index,
+					'Index "%s" requires multiple fields ' \
+					'but no tuple was passed' % index
+				)
+
+			# If the counts do not match
+			if len(_id) != len(dIndex['fields']):
+				raise IndexError(
+					index,
+					'Index "%s" requires %d fields but' \
+					'only received %d' % (
+						index,
+						len(dIndex['fields']),
+						len(_id)
+					)
+				)
+
+			# Init the filter
+			dWhere = {}
+
+			# Go through each field and add it
+			for i in range(len(_id)):
+				dWhere[dIndex['fields'][i]] = _id[i]
+
+		# Fetch the ID using the filter and return it
+		return self._parent._table.select(
+			fields = [ self._key ],
+			where = dWhere,
+			limit = 1
+		)
 
 	def insert(self,
 		value: dict | list = {},
