@@ -85,7 +85,7 @@ class Storage(_Storage):
 
 		# If cache is enabled
 		if oCache['implementation']:
-			self._cache: Cache = Cache.factory(oCache)
+			self._cache: Cache = Cache.factory(self._name, oCache)
 
 	def add(self,
 		value: dict,
