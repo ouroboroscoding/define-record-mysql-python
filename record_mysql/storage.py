@@ -29,6 +29,9 @@ Parent.add_type('Parent')
 Leveled.add_type('Array')
 Leveled.add_type('Hash')
 
+class RecordStorageException(Exception):
+	pass
+
 class Storage(_Storage):
 	"""Storage
 
@@ -505,7 +508,7 @@ class Storage(_Storage):
 		try:
 
 			# Get the index from the parent
-			dIndex = self._parent.indexes[index]
+			dIndex = self._parent._table._struct.indexes[index]
 
 		# If the index doesn't exist in the record
 		except KeyError:
@@ -516,15 +519,15 @@ class Storage(_Storage):
 			)
 
 		# If it's not a unique index
-		if not dIndex['unique']:
+		if dIndex['type'] != 'unique':
 			raise IndexError(
 				index,
 				'Cache index "%s" is not unique in MySQL' %
 					index
 			)
 
-		# If the index has only one field
-		if len(dIndex['fields']) == 1:
+		# If the indexes "fields" are a single string
+		if isinstance(dIndex['fields'], str):
 
 			# If the value passed is a tuple, something is
 			#	wrong
@@ -536,37 +539,63 @@ class Storage(_Storage):
 				)
 
 			# Create the filter using the one field
-			dWhere = { dIndex['fields'][0]: _id }
+			dWhere = { dIndex['fields']: _id }
 
-		# Else, we have multiple fields in the index
-		else:
+		# Else, if it's a tuple
+		elif isinstance(dIndex['fields'], tuple):
 
-			# If we didn't get a tuple
-			if not isinstance(_id, tuple):
-				raise IndexError(
-					index,
-					'Index "%s" requires multiple fields ' \
-					'but no tuple was passed' % index
-				)
+			# if the index has only one field
+			if len(dIndex['fields']) == 1:
 
-			# If the counts do not match
-			if len(_id) != len(dIndex['fields']):
-				raise IndexError(
-					index,
-					'Index "%s" requires %d fields but' \
-					'only received %d' % (
+				# If the value passed is a tuple, something is
+				#	wrong
+				if isinstance(_id, tuple):
+					raise IndexError(
 						index,
-						len(dIndex['fields']),
-						len(_id)
+						'Index "%s" requires only one field ' \
+						'but a tuple was passed' % index
 					)
-				)
 
-			# Init the filter
-			dWhere = {}
+				# Create the filter using the one field
+				dWhere = { dIndex['fields'][0]: _id }
 
-			# Go through each field and add it
-			for i in range(len(_id)):
-				dWhere[dIndex['fields'][i]] = _id[i]
+			# Else, we have multiple fields in the index
+			else:
+
+				# If we didn't get a tuple
+				if not isinstance(_id, tuple):
+					raise IndexError(
+						index,
+						'Index "%s" requires multiple fields ' \
+						'but no tuple was passed' % index
+					)
+
+				# If the counts do not match
+				if len(_id) != len(dIndex['fields']):
+					raise IndexError(
+						index,
+						'Index "%s" requires %d fields but' \
+						'only received %d' % (
+							index,
+							len(dIndex['fields']),
+							len(_id)
+						)
+					)
+
+				# Init the filter
+				dWhere = {}
+
+				# Go through each field and add it
+				for i in range(len(_id)):
+					dWhere[dIndex['fields'][i]] = _id[i]
+
+		# Else, invalid index format
+		else:
+			raise RecordStorageException(
+				'index fields',
+				'invalid format',
+				dIndex['fields']
+			)
 
 		# Fetch the ID using the filter and return it
 		return self._parent._table.select(

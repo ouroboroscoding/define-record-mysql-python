@@ -53,6 +53,9 @@ class Select(IntEnum):
 	HASH_ROWS	= 5
 	ROW			= 6
 
+class RecordServerException(Exception):
+	pass
+
 def _clear_connection(host: str) -> None:
 	"""Clear Connection
 
@@ -105,7 +108,7 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 
 	# If no such host has been added
 	if host not in __hosts:
-		raise ValueError('no such host "%s"' % str(host))
+		raise RecordServerException('no such host "%s"' % str(host))
 
 	# Get the config
 	dConf = __hosts[host]
@@ -410,7 +413,7 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 		except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
 
 			# Raise a Value Exception
-			raise ValueError(
+			raise RecordServerException(
 				e.args[0],
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]), str(e.args[1]), str(sql)
@@ -442,7 +445,7 @@ def execute(sql: str | list, host: str = '_', errcnt: int = 0) -> int:
 
 			# If the error code is one that won't change
 			if e.args[0] in [1051, 1054, 1136]:
-				raise ValueError(
+				raise RecordServerException(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
 						str(e.args[0]), str(e.args[1]), str(sql)
@@ -511,7 +514,7 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 		except pymysql.err.ProgrammingError as e:
 
 			# Raise an SQL Exception
-			raise ValueError(
+			raise RecordServerException(
 				e.args[0],
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]), str(e.args[1]), str(sql)
@@ -539,7 +542,7 @@ def insert(sql: str, host: str = '_', errcnt: int = 0):
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
-				raise ValueError(
+				raise RecordServerException(
 				e.args[0],
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]), str(e.args[1]), str(sql)
@@ -637,7 +640,7 @@ def select(
 			elif seltype == Select.HASH_ROWS:
 				# If the field arg wasn't set
 				if field == None:
-					raise ValueError(
+					raise RecordServerException(
 						'Must specificy a field for the dictionary key when ' \
 						'using HASH_ROWS'
 					)
@@ -660,7 +663,7 @@ def select(
 		except pymysql.err.ProgrammingError as e:
 
 			# Raise an SQL Exception
-			raise ValueError(
+			raise RecordServerException(
 				e.args[0],
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]), str(e.args[1]), str(sql)
@@ -673,7 +676,7 @@ def select(
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
-				raise ValueError(
+				raise RecordServerException(
 				e.args[0],
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]), str(e.args[1]), str(sql)

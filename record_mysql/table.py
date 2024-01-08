@@ -304,8 +304,8 @@ class Table(object):
 		self._convert: list[list[str]] = []
 
 		# Clean up the indexes if there is any
-		if self._struct.indexes:
-			self._simple_indexes()
+		#if self._struct.indexes:
+		#	self._simple_indexes()
 
 		# Step through each column
 		for f in self._columns:
