@@ -304,8 +304,8 @@ class Table(object):
 		self._convert: list[list[str]] = []
 
 		# Clean up the indexes if there is any
-		#if self._struct.indexes:
-		#	self._simple_indexes()
+		if self._struct.indexes:
+			self._simple_indexes()
 
 		# Step through each column
 		for f in self._columns:
@@ -347,64 +347,64 @@ class Table(object):
 			)
 
 		# Init the indexes
-		self.indexes = {}
+		dIndexes = {}
 
 		# Loop through the pairs to get the data associated
 		for sName, mValue in self._struct.indexes.items():
 
 			# If it's None
 			if mValue is None:
-				self.indexes[sName] = {
+				dIndexes[sName] = {
 					'fields': [ sName ],
-					'unique': False
+					'type': 'INDEX'
 				}
 
 			# If the index is a string
 			elif isinstance(mValue, str):
-				self.indexes[sName] = {
+				dIndexes[sName] = {
 					'fields': [ mValue ],
-					'unique': False
+					'type': 'INDEX'
 				}
 
 			# If it's a list
 			elif isinstance(mValue, list):
-				self.indexes[sName] = {
+				dIndexes[sName] = {
 					'fields': self._simple_indexes_list(mValue, sName),
-					'unique': False
+					'type': 'INDEX'
 				}
 
 			# If it's a dictionary
 			elif isinstance(mValue, dict):
 
 				# Init the dict
-				self.indexes[sName] = {}
+				dIndexes[sName] = {}
 
 				# If there's fields
 				try:
 
 					# If it's None
 					if mValue.fields is None:
-						self.indexes[sName]['fields'] = [ sName ]
+						dIndexes[sName]['fields'] = [ sName ]
 
 					# If the index is a string
 					elif isinstance(mValue.fields, str):
-						self.indexes[sName]['fields'] =  [ mValue ]
+						dIndexes[sName]['fields'] =  [ mValue.fields ]
 
 					# If it's a list
 					elif isinstance(mValue.fields, list):
-						self.indexes[sName]['fields'] = \
+						dIndexes[sName]['fields'] = \
 							self._simple_indexes_list(mValue.fields, sName)
 
 				# Else, no fields, use the name as the only field
 				except AttributeError:
-					self.indexes[sName]['fields'] = [ sName ]
+					dIndexes[sName]['fields'] = [ sName ]
 
 				# If we have a type
-				try:
-					self.indexes[sName]['unique'] = \
-						mValue.type.upper() == 'UNIQUE'
-				except AttributeError:
-					self.indexes[sName]['unique'] = False
+				if 'type' in mValue:
+					dIndexes[sName]['type'] = mValue.type.upper()
+
+		# Overwrite the old indexes
+		self._struct.indexes = dIndexes
 
 	@classmethod
 	def _simple_indexes_list(cls, fields: list, name: str) -> list:
@@ -579,154 +579,86 @@ class Table(object):
 			# Loop through the pairs to get the data associated
 			for sName, mValue in self._struct.indexes.items():
 
-				# If it's None
-				if mValue is None:
+				# Init the list of index fields
+				lIndexFields = []
 
-					# Create a non-unique index with the name also being the
-					#	field
-					lIndexes.append('INDEX `%s` (`%s`)' % (
-						sIndexType, sName, sName
-					))
+				# Go through each field in the list
+				for mf in mValue.fields:
 
-				# If the index is a string
-				elif isinstance(mValue, str):
+					# If it's a string, use it as is
+					if isinstance(mf, str):
+						lIndexFields.append('`%s`' % mf)
 
-					# Create a non-unique index with the value being the only
-					#	field
-					lIndexes.append('INDEX `%s` (`%s`)' % (
-						sIndexType, sName, mValue
-					))
+					# Else, if it's a dict
+					elif isinstance(mf, dict):
 
-				# If it's a list
-				elif isinstance(mValue, list):
-
-					# Create a non-unique index with the value being the only
-					#	field
-					lIndexes.append('INDEX `%s` (`%s`)' % (
-						sIndexType, sName, mValue
-					))
-
-				# Else, if the index is a dict
-				elif isinstance(mValue, dict):
-
-					# If we have fields
-					if 'fields' in mValue:
-
-						# If it's not a list
-						if not isinstance(mValue.fields, list):
-
-							# If it's a string
-							if isinstance(mValue.fields, str):
-								mValue.fields = [ mValue.fields ]
-
-							# Else, invalid
-							else:
-								raise ValueError(
-									'record_mysql.table.struct.indexes[].' \
-									'fields must be a list or string'
-								)
-
-						# Init the list of index fields
-						lIndexFields = []
-
-						# Go through each field in the list
-						for mf in mValue.fields:
-
-							# If it's a string, use it as is
-							if isinstance(mf, str):
-								lIndexFields.append('`%s`' % mf)
-
-							# Else, if it's a dict
-							elif isinstance(mf, dict):
-
-								# If we are missing a name
-								if 'name' not in mf:
-									raise ValueError(
-										'record_mysql.table.struct.indexes[].' \
-										'fields[].name is required'
-									)
-
-								# If we have a order set
-								if 'order' in mf:
-
-									# If the order is invalid
-									if mf.order.upper() not in ['ASC', 'DESC']:
-										raise ValueError(
-											'record_mysql.table._struct.' \
-											'indexes[].fields[].order must ' \
-											'be one of \'ASC\' | \'DESC\''
-										)
-
-									# Set the order
-									sIndexFieldOrder = mf.order.upper()
-
-								# Else, make it an ascending index
-								else:
-									sIndexFieldOrder = 'ASC'
-
-								# If we have a size set
-								if 'size' in mf:
-
-									# If the size is invalid
-									if not isinstance(mf.size, int):
-										raise ValueError(
-											'record_mysql.table._struct.' \
-											'indexes[].fields[].size must be ' \
-											'an int'
-										)
-
-									# Set the size
-									sIndexFieldSize = '(%d)' % mf.size
-
-								# Else, make it a simple index
-								else:
-									sIndexFieldSize = ''
-
-								# Combine the parts into one index field
-								lIndexFields.append('`%s`%s %s' % (
-									mf.name,
-									sIndexFieldSize,
-									sIndexFieldOrder
-								))
-
-						# Join the fields together
-						sIndexFields = ', '.join(lIndexFields)
-
-					# Else, use the name as the field
-					else:
-						sIndexFields = '`%s`' % sName
-
-					# If we have a type set
-					if 'type' in mValue:
-
-						# If the type is invalid
-						if mValue.type.upper() not in [
-							'UNIQUE', 'FULLTEXT', 'SPATIAL'
-						]:
+						# If we are missing a name
+						if 'name' not in mf:
 							raise ValueError(
-								'record_mysql.table.struct.indexes[].type ' \
-								'must be one of \'UNIQUE\' | \'FULLTEXT\' | ' \
-								'\'SPATIAL\''
+								'record_mysql.table.struct.indexes[].' \
+								'fields[].name is required'
 							)
 
-						# Set the type
-						sIndexType = mValue.type.upper()
+						# If we have a order set
+						if 'order' in mf:
 
-					# Else, make it a simple index
-					else:
-						sIndexType = 'INDEX'
+							# If the order is invalid
+							if mf.order.upper() not in ['ASC', 'DESC']:
+								raise ValueError(
+									'record_mysql.table._struct.' \
+									'indexes[].fields[].order must ' \
+									'be one of \'ASC\' | \'DESC\''
+								)
 
-					# Append the index
-					lIndexes.append('%s `%s` (%s)' % (
-						sIndexType, sName, sIndexFields
-					))
+							# Set the order
+							sIndexFieldOrder = mf.order.upper()
 
-				# Else, the index is invalid
-				else:
+						# Else, make it an ascending index
+						else:
+							sIndexFieldOrder = 'ASC'
+
+						# If we have a size set
+						if 'size' in mf:
+
+							# If the size is invalid
+							if not isinstance(mf.size, int):
+								raise ValueError(
+									'record_mysql.table._struct.' \
+									'indexes[].fields[].size must be ' \
+									'an int'
+								)
+
+							# Set the size
+							sIndexFieldSize = '(%d)' % mf.size
+
+						# Else, make it a simple index
+						else:
+							sIndexFieldSize = ''
+
+						# Combine the parts into one index field
+						lIndexFields.append('`%s`%s %s' % (
+							mf.name,
+							sIndexFieldSize,
+							sIndexFieldOrder
+						))
+
+				# Join the fields together
+				sIndexFields = ', '.join(lIndexFields)
+
+				# If the type is invalid
+				if mValue.type not in [
+					'INDEX', 'UNIQUE', 'FULLTEXT', 'SPATIAL'
+				]:
 					raise ValueError(
-						'record_mysql.table.struct.indexes[] must be a str or ' \
-						'dict'
+						'record_mysql.table.struct.indexes[].type ' \
+						'must be one of \'UNIQUE\' | \'FULLTEXT\' | ' \
+						'\'SPATIAL\''
 					)
+
+				# Append the index
+				lIndexes.append('%s `%s` (%s)' % (
+					mValue.type, sName, sIndexFields
+				))
 
 		# Generate the CREATE statement
 		sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\

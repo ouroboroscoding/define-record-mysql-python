@@ -76,6 +76,9 @@ class Storage(_Storage):
 		# Create the top level parent for the record
 		self._parent = Parent(self._name, key_name, self)
 
+		# Store the key field name
+		self._key = key_name
+
 		# If the key name was overwritten in the special values, then we need
 		#	to store the global one
 		if self._parent._table._struct.key != key_name:
@@ -87,8 +90,9 @@ class Storage(_Storage):
 		})
 
 		# If cache is enabled
-		if oCache['implementation']:
-			self._cache: Cache = Cache.factory(self._name, oCache)
+		self._cache = oCache['implementation'] and \
+			Cache.factory(self._name, oCache) or \
+			False
 
 	def add(self,
 		value: dict,
@@ -198,13 +202,34 @@ class Storage(_Storage):
 
 		# If we got no index
 		if index is undefined:
-			index = self.key
+			index = self._key
 
-		# Call the table directly
-		return self._parent._table.select(
+		# Else, verify the index
+		else:
+
+			# If the given index doesn't exist, or is not unique
+			if index not in self._parent._table._struct.indexes or \
+				self._parent._table._struct.indexes.type != 'UNIQUE':
+
+				# Raise an error
+				raise RecordStorageException(
+					'exists `index` must be a unique index in the table'
+				)
+
+		# Call the table directly and store the result
+		mResult = self._parent._table.select(
 			fields = [ self._key ],
 			where = { index: _id }
-		) and True or False
+		)
+
+		# If we have multiple IDs
+		if isinstance(_id, list):
+
+			# Return true only if the counts match
+			return len(_id) == len(mResult)
+
+		# Else, return based on the result
+		return mResult and True or False
 
 	def filter(self,
 		fields: dict,
@@ -519,10 +544,10 @@ class Storage(_Storage):
 			)
 
 		# If it's not a unique index
-		if dIndex['type'] != 'unique':
+		if dIndex['type'] != 'UNIQUE':
 			raise IndexError(
 				index,
-				'Cache index "%s" is not unique in MySQL' %
+				'Cache index "%s" is not UNIQUE in MySQL' %
 					index
 			)
 

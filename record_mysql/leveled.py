@@ -640,26 +640,44 @@ class Leveled(Base):
 		# If we are getting a single set of rows
 		if isinstance(_id, str):
 
-			# Find the records ordered by the levels and store them by unique ID
-			dRows = {d[self._table._struct.key]:d for d in self._table.select(
-				where = { '_parent': _id },
-				orderby = self._levels
-			)}
+			# If the level represents only a single node
+			if self._node:
 
-			# Go through each complex record
-			for f in self._complex:
+				# Find the records ordered by the levels
+				lRows = self._table.select(
+					where = { '_parent': _id },
+					orderby = self._levels
+				)
 
-				# For each row
-				for sID in dRows:
+				# Now that we have all the data, split it up by the levels and
+				#	return it
+				return self._elevate(lRows)
 
-					# Call the child get, passing along the ID, then store the
-					#	results by that ID
-					dRows[sID][f] = self._complex[f].get(sID)
+			# Else, we have more complex types
+			else:
 
-			# Now that we have all the data, split it up by the levels and return it
-			return self._elevate(
-				list(dRows.values())
-			)
+				# Find the records ordered by the levels and store them by
+				#	unique ID
+				dRows = {d[self._table._struct.key]:d for d in self._table.select(
+					where = { '_parent': _id },
+					orderby = self._levels
+				)}
+
+				# Go through each complex record
+				for f in self._complex:
+
+					# For each row
+					for sID in dRows:
+
+						# Call the child get, passing along the ID, then store the
+						#	results by that ID
+						dRows[sID][f] = self._complex[f].get(sID)
+
+				# Now that we have all the data, split it up by the levels and
+				#	return it
+				return self._elevate(
+					list(dRows.values())
+				)
 
 		# Else, we are getting rows for multiple parents
 		else:
@@ -849,6 +867,17 @@ class Leveled(Base):
 					lTA.insert( values = combine(
 						d, { '_parent': _id }
 					))
+
+				# If we have a transaction passed in, extend it with ours
+				if ta is not undefined:
+					ta.extend(lTA)
+
+				# Else, run everything
+				else:
+
+					# If we were not successful
+					if not lTA.run():
+						return None
 
 				# Return the old records
 				return self._elevate(lValues)
