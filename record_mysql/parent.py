@@ -418,6 +418,10 @@ class Parent(Base):
 			ta (Transaction): Optional, the open transaction to add new sql \
 				statements to
 
+		Raises:
+			RecordDuplicate
+			RecordServerException
+
 		Returns:
 			dict | None
 		"""
@@ -513,6 +517,10 @@ class Parent(Base):
 				data to be updated under the given ID
 			ta (Transaction): Optional, the open transaction to add new sql \
 				statements to
+
+		Raises:
+			RecordDuplicate
+			RecordServerException
 
 		Returns:
 			dict | None

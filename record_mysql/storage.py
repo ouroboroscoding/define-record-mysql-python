@@ -14,6 +14,7 @@ __all__ = ['Storage']
 
 # Ouroboros imports
 from record import Cache, CONFLICT, Data, Storage as _Storage
+from record.exceptions import RecordStorageException
 import undefined
 
 # Python imports
@@ -28,9 +29,6 @@ from record_mysql.leveled import Leveled
 Parent.add_type('Parent')
 Leveled.add_type('Array')
 Leveled.add_type('Hash')
-
-class RecordStorageException(Exception):
-	pass
 
 class Storage(_Storage):
 	"""Storage
@@ -109,6 +107,12 @@ class Storage(_Storage):
 				a conflict in adding the record
 			revision_info (dict): Optional, additional information to store \
 				with the revision record
+
+		Raises:
+			RecordDuplicate
+			RecordServerException
+			RecordStorageException
+			ValueError
 
 		Returns:
 			The ID of the added record
@@ -552,7 +556,7 @@ class Storage(_Storage):
 			)
 
 		# If the indexes "fields" are a single string
-		if isinstance(dIndex['fields'], str):
+		if len(dIndex['fields']) == 1:
 
 			# If the value passed is a tuple, something is
 			#	wrong
@@ -564,63 +568,37 @@ class Storage(_Storage):
 				)
 
 			# Create the filter using the one field
-			dWhere = { dIndex['fields']: _id }
+			dWhere = { dIndex['fields'][0]: _id }
 
-		# Else, if it's a tuple
-		elif isinstance(dIndex['fields'], tuple):
-
-			# if the index has only one field
-			if len(dIndex['fields']) == 1:
-
-				# If the value passed is a tuple, something is
-				#	wrong
-				if isinstance(_id, tuple):
-					raise IndexError(
-						index,
-						'Index "%s" requires only one field ' \
-						'but a tuple was passed' % index
-					)
-
-				# Create the filter using the one field
-				dWhere = { dIndex['fields'][0]: _id }
-
-			# Else, we have multiple fields in the index
-			else:
-
-				# If we didn't get a tuple
-				if not isinstance(_id, tuple):
-					raise IndexError(
-						index,
-						'Index "%s" requires multiple fields ' \
-						'but no tuple was passed' % index
-					)
-
-				# If the counts do not match
-				if len(_id) != len(dIndex['fields']):
-					raise IndexError(
-						index,
-						'Index "%s" requires %d fields but' \
-						'only received %d' % (
-							index,
-							len(dIndex['fields']),
-							len(_id)
-						)
-					)
-
-				# Init the filter
-				dWhere = {}
-
-				# Go through each field and add it
-				for i in range(len(_id)):
-					dWhere[dIndex['fields'][i]] = _id[i]
-
-		# Else, invalid index format
+		# Else, the index has multiple fields
 		else:
-			raise RecordStorageException(
-				'index fields',
-				'invalid format',
-				dIndex['fields']
-			)
+
+			# If we didn't get a tuple
+			if not isinstance(_id, tuple):
+				raise IndexError(
+					index,
+					'Index "%s" requires multiple fields ' \
+					'but no tuple was passed' % index
+				)
+
+			# If the counts do not match
+			if len(_id) != len(dIndex['fields']):
+				raise IndexError(
+					index,
+					'Index "%s" requires %d fields but' \
+					'only received %d' % (
+						index,
+						len(dIndex['fields']),
+						len(_id)
+					)
+				)
+
+			# Init the filter
+			dWhere = {}
+
+			# Go through each field and add it
+			for i in range(len(_id)):
+				dWhere[dIndex['fields'][i]] = _id[i]
 
 		# Fetch the ID using the filter and return it
 		return self._parent._table.select(
@@ -644,6 +622,11 @@ class Storage(_Storage):
 				or a list of fields to update
 			revision_info (dict): Optional, additional information to store \
 				with the revision record
+
+		Raises:
+			RecordDuplicate
+			RecordServerException
+			RecordStorageException
 
 		Returns:
 			Data
@@ -694,6 +677,10 @@ class Storage(_Storage):
 			filter (dict): Optional, data to filter what gets deleted
 			revision_info (dict): Optional, additional information to store \
 				with the revision record
+
+		Raises:
+			RecordServerException
+			RecordStorageException
 
 		Returns:
 			dict | dict[]
@@ -820,6 +807,11 @@ class Storage(_Storage):
 				caching, saves processing cycles fetching data from the DB if \
 				we already have it
 
+		Raises:
+			RecordDuplicate
+			RecordServerException
+			RecordStorageException
+
 		Returns:
 			True on success
 		"""
@@ -857,7 +849,7 @@ class Storage(_Storage):
 
 					# If they weren't passed
 					if not isinstance(revision_info, dict):
-						raise ValueError('revision')
+						raise RecordStorageException('revision')
 
 					# Else, add the extra fields
 					for f in self._parent._table._struct.revisions:

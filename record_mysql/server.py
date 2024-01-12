@@ -22,7 +22,7 @@ from time import sleep
 
 # Pip imports
 import arrow
-from record.exceptions import RecordDuplicate
+from record.exceptions import RecordDuplicate, RecordServerException
 import pymysql
 
 # List of available hosts
@@ -52,9 +52,6 @@ class Select(IntEnum):
 	HASH		= 4
 	HASH_ROWS	= 5
 	ROW			= 6
-
-class RecordServerException(Exception):
-	pass
 
 def _clear_connection(host: str) -> None:
 	"""Clear Connection
