@@ -357,8 +357,9 @@ class Storage(_Storage):
 			Data | Data[] | dict | dict[]
 		"""
 
-		# Init the records
+		# Init the Records and IDs
 		lRecords = None
+		lIDs = None
 
 		# If there's no IDs
 		if _id is undefined:
@@ -386,6 +387,8 @@ class Storage(_Storage):
 				lIDs = self._parent._table.select(
 					fields = [ self._key ]
 				)
+				if lIDs:
+					lIDs = [ d[self._key] for d in lIDs]
 
 			# If we have just one
 			if isinstance(lIDs, (str, tuple)):
