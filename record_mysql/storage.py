@@ -388,7 +388,7 @@ class Storage(_Storage):
 				)
 
 			# If we have just one
-			if isinstance(lIDs, str):
+			if isinstance(lIDs, (str, tuple)):
 
 				# Init the record
 				dRecord = None
@@ -481,8 +481,8 @@ class Storage(_Storage):
 				# If an index was passed
 				if index is not undefined:
 					raise ValueError(
-						'Record-MySQL does not currently support getting by' \
-						'index on Records without a cache'
+						'Record-MySQL does not currently support getting ' \
+						'multiple Records by secondary index without a cache'
 					)
 
 				# If we have no complex
@@ -531,7 +531,7 @@ class Storage(_Storage):
 			index (str): The name of the index to fetch
 
 		Returns:
-			str
+			mixed
 		"""
 
 		try:
@@ -600,12 +600,19 @@ class Storage(_Storage):
 			for i in range(len(_id)):
 				dWhere[dIndex['fields'][i]] = _id[i]
 
-		# Fetch the ID using the filter and return it
-		return self._parent._table.select(
+		# Fetch the ID using the filter
+		dRecord = self._parent._table.select(
 			fields = [ self._key ],
 			where = dWhere,
 			limit = 1
 		)
+
+		# If we got a record, return the primary key
+		if dRecord:
+			return dRecord[self._key]
+
+		# Else, return nothing
+		return None
 
 	def insert(self,
 		value: dict | list = {},
