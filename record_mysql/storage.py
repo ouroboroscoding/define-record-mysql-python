@@ -170,7 +170,12 @@ class Storage(_Storage):
 
 		# If we have a cache
 		if self._cache:
-			self._cache.set(value[self._key], value)
+
+			# Get the actual data from the database
+			dRecord = self._parent.get(value[self._key])
+
+			# Store that data in the cache
+			self._cache.set(value[self._key], dRecord)
 
 		# Return the ID of the new record
 		return value[self._key]
@@ -387,8 +392,13 @@ class Storage(_Storage):
 				lIDs = self._parent._table.select(
 					fields = [ self._key ]
 				)
-				if lIDs:
-					lIDs = [ d[self._key] for d in lIDs]
+
+				# If nothing exists
+				if not lIDs:
+					return []
+
+				# Flattern the list
+				lIDs = [ d[self._key] for d in lIDs]
 
 			# If we have just one
 			if isinstance(lIDs, (str, tuple)):
@@ -472,6 +482,9 @@ class Storage(_Storage):
 
 							# Store it for next time
 							self._cache.set(sID, dRecord)
+
+						# Set the record
+						lRecords[i] = dRecord
 
 					# Else, if it's False, set it to None and move on, we know
 					#	this record does not exist
