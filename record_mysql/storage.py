@@ -501,11 +501,13 @@ class Storage(_Storage):
 						'multiple Records by secondary index without a cache'
 					)
 
-				# If we have no complex
-				if not self._parent._complex:
+				# If we have no complex, or are not looking for complex
+				if not self._parent._complex or (
+					raw and any(f not in self._parent._complex for f in raw) ):
 
 					# Fetch and store all records by ID
 					lRecords = self._parent._table.select(
+						fields = raw or undefined,
 						where = { self._key: lIDs }
 					)
 
