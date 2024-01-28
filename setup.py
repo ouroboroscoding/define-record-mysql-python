@@ -5,7 +5,7 @@ with open('README.md', 'r') as oF:
 
 setup(
 	name='record-mysql',
-	version='1.0.0',
+	version='1.0.1',
 	description='Provides abstract classes meant to represent record data as Define Node types',
 	long_description=long_description,
 	long_description_content_type='text/markdown',
