@@ -184,11 +184,12 @@ def _cursor(host: str, dict_cur: bool = False):
 	# Get a connection to the host
 	oCon = _connection(host)
 
-	# Start the transaction
-	oCon.begin()
-
 	# Try to get a cursor on the connection
 	try:
+
+		# Start the transaction
+		oCon.begin()
+
 		if dict_cur:
 			oCursor = oCon.cursor(pymysql.cursors.DictCursor)
 		else:
