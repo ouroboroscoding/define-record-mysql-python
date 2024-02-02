@@ -71,6 +71,9 @@ class Leveled(Base):
 		# By default, mark this as a complex array
 		self._node: bool = False
 
+		# By default, assume this is a pure array
+		self._pure_array: bool = True
+
 		# Add the key fields to the columns
 		self._keys[parent._table._struct.key] = \
 			define.Node({ '__type__': 'uuid'})
@@ -94,6 +97,10 @@ class Leveled(Base):
 
 			# If it's an array
 			if sChild in ['Array', 'Hash']:
+
+				# If it's a hash, no more pure array
+				if sChild == 'Hash':
+					self._pure_array = False
 
 				# Add a column to the levels for the new array or hash
 				self._levels.append(
@@ -129,6 +136,9 @@ class Leveled(Base):
 
 			# If it's a parent, we'll create columns for each field
 			elif sChild == 'Parent':
+
+				# No more pure array
+				self._pure_array = False
 
 				# Step through each one of fields in the Parent (oChild)
 				for f in oChild:
@@ -825,7 +835,7 @@ class Leveled(Base):
 		"""Update
 
 		Updates the rows associated with the given ID and returns the previous \
-		ows that were overwritten if there's any changes
+		rows that were overwritten if there's any changes
 
 		Arguments:
 			_id (str): The ID to update records for
@@ -854,11 +864,29 @@ class Leveled(Base):
 				where = { '_parent': _id }
 			)
 
-			# If the data is not the same
-			if not compare(lValues, lData):
+			# If we have a pure array
+			if self._pure_array:
 
-				# Delete all rows associated with the parent
-				lTA.delete({ '_parent': _id })
+				# If the data is not the same
+				if not compare(lValues, lData):
+
+					# Delete all rows associated with the parent
+					lTA.delete({ '_parent': _id })
+
+					# Go through each row
+					for d in lData:
+
+						# Generate the SQL to insert the row with the parent ID
+						lTA.insert( values = combine(
+							d, { '_parent': _id }
+						))
+
+					# Set return
+					mRet = self._elevate(lValues)
+
+			# Else, we have a parent or hash so we can just insert/update, but
+			#	we need to do some extra stuff for diffs
+			else:
 
 				# Go through each new row
 				for d in lData:
@@ -866,21 +894,27 @@ class Leveled(Base):
 					# Generate the SQL to insert the row with the parent ID
 					lTA.insert( values = combine(
 						d, { '_parent': _id }
-					))
+					), conflict = 'replace')
 
-				# If we have a transaction passed in, extend it with ours
-				if ta is not undefined:
-					ta.extend(lTA)
+				# No old values
+				lValues = []
 
-				# Else, run everything
-				else:
+				# Set return
+				mRet = 'insert_replace'
 
-					# If we were not successful
-					if not lTA.run():
-						return None
+			# If we have a transaction passed in, extend it with ours
+			if ta is not undefined:
+				ta.extend(lTA)
 
-				# Return the old records
-				return self._elevate(lValues)
+			# Else, run everything
+			else:
+
+				# If we were not successful
+				if not lTA.run():
+					return None
+
+			# Return the old records
+			return mRet
 
 		# Else, we have a multi-value table
 		else:

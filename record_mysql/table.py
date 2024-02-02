@@ -22,7 +22,7 @@ import undefined
 
 # Python imports
 import re
-from typing import Literal as LT
+from typing import Literal as LT, Tuple
 
 # Local imports
 from record_mysql import server, transaction
@@ -1289,7 +1289,7 @@ class Table(object):
 		where: dict = undefined,
 		groupby: str | list[str] = undefined,
 		orderby: str | list[str] = undefined,
-		limit: int | tuple = undefined
+		limit: int | Tuple(int, int) = undefined
 	) -> list[dict]:
 		"""Select
 
@@ -1303,8 +1303,8 @@ class Table(object):
 				to get
 			groupby (str | str[]): Optional, a field or fields to group by
 			orderby (str | str[]): Optional, a field or fields to order by
-			limit (int | tuple): Optional, the max (int), or the starting \
-				point and max (tuple)
+			limit (uint | (uint, uint)): Optional, the max (int), or the \
+				starting point and max (tuple)
 
 		Returns:
 			dict[]

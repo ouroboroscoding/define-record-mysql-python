@@ -19,7 +19,7 @@ from tools import merge, without
 import undefined
 
 # Python imports
-from typing import List
+from typing import List, Tuple
 
 # Local imports
 from record_mysql.base import Base
@@ -241,7 +241,10 @@ class Parent(Base):
 		# Return the data
 		return dOldData or None
 
-	def filter(self, filter: dict) -> list[str]:
+	def filter(self,
+		filter: dict,
+		limit: int | Tuple[int, int] = undefined
+	) -> List[str]:
 		"""Filter
 
 		Returns the top level IDs filtered by the given field/value pairs
@@ -258,6 +261,10 @@ class Parent(Base):
 		dComplex = {}
 		lsIDs = None
 
+		# Do we only want one record?
+		bSingle = (isinstance(limit, int) and limit == 1) or \
+					(isinstance(limit, tuple) and limit[1] == 1)
+
 		# First, go through each key of the filter and pull out all the ones
 		#	in this level
 		for k in list(filter.keys()):
@@ -271,20 +278,34 @@ class Parent(Base):
 		# If there's any local columns
 		if dColumns:
 
-			# Find the IDs of the records with the given filter in the table,
-			#	then try to find the top level IDs they correspond to
-			lIDs = self._get_ids([
-				d[self._table._struct.key] for d in
-				self._table.select(
-					distinct = True,
-					fields = [ self._table._struct.key ],
-					where = dColumns
-				)
-			])
+			# Get the IDs
+			mSelect = self._table.select(
+				distinct = True,
+				fields = [ self._table._struct.key ],
+				where = dColumns,
+				limit = limit
+			)
+
+			# If a single record is expected
+			if bSingle:
+
+				# Find the IDs of the records with the given filter in the
+				#	table, then try to find the top level IDs they correspond to
+				lIDs = self._get_ids([ mSelect[self._table._struct.key] ])
+
+			# Else, fetch all records
+			else:
+
+				# Find the IDs of the records with the given filter in the
+				#	table, then try to find the top level IDs they correspond to
+				lIDs = self._get_ids([
+					d[self._table._struct.key] for d in mSelect
+				])
 
 			# If we got nothing, we will always get nothing
 			if not lIDs:
-				return []
+				if bSingle: return None
+				else: return []
 
 			# We got something, set the IDs
 			lsIDs = set(lIDs)
@@ -300,7 +321,8 @@ class Parent(Base):
 
 				# If we got nothing, we will always get nothing
 				if not lIDs:
-					return []
+					if bSingle: return None
+					else: return []
 
 				# If we got any IDs
 				if lIDs:
@@ -314,12 +336,17 @@ class Parent(Base):
 					else:
 						lsIDs = lsIDs.intersection(lIDs)
 
-		# If we got nothing
-		if not lsIDs:
-			return []
+		# If we only want one
+		if bSingle:
+			if not lsIDs:
+				return None
+			return lsIDs.pop()
 
-		# Return whatever we got as a plain list
-		return list(lsIDs)
+		# Else, we want multiple
+		else:
+			if not lsIDs:
+				return []
+			return list(lsIDs)
 
 	def get(self, _id: str | List[str]) -> dict | List[dict]:
 		"""Get

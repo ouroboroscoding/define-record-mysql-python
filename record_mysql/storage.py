@@ -19,7 +19,7 @@ import undefined
 
 # Python imports
 from sys import stderr
-from typing import List
+from typing import List, Tuple
 
 # Local imports
 from record_mysql.parent import Parent
@@ -243,7 +243,7 @@ class Storage(_Storage):
 	def filter(self,
 		fields: dict,
 		raw: bool | List[str] = False,
-		options: dict = None
+		limit: int | Tuple[int, int] = undefined
 	) -> List[Data] | List[dict]:
 		"""Filter
 
@@ -261,80 +261,124 @@ class Storage(_Storage):
 		# Init the records
 		lRecords = None
 
+		# Do we want one record?
+		bSingle = (isinstance(limit, int) and limit == 1) or \
+					(isinstance(limit, tuple) and limit[1] == 1)
+
 		# Call the parents filter in order to get the IDs
-		lIDs = self._parent.filter(fields)
+		mIDs = self._parent.filter(fields, limit)
 
-		# If we got anything
-		if lIDs:
+		# If we have one ID
+		if bSingle:
 
-			# If all we wanted was IDs
-			if raw and \
-				raw is not True and \
-				len(raw) == 1 and \
-				raw[0] == self._key:
+			# If we got anything
+			if mIDs:
 
-					# Return the IDs
-					return [ { self._key: id_ } for id_ in lIDs ]
+				# If all we wanted was IDs
+				if raw and \
+					raw is not True and \
+					len(raw) == 1 and \
+					raw[0] == self._key:
 
-			# If we have a cache
-			if self._cache:
+					# Return the ID
+					return mIDs
 
-				# Try to get them from the cache
-				lRecords = self._cache.fetch(lIDs)
+				# If we have a cache
+				if self._cache:
 
-				# Go through each record by index
-				for i in range(len(lRecords)):
+					# Try to get them from the cache
+					dRecord = self._cache.get(mIDs)
 
-					# If we didn't get the record
-					if lRecords[i] is None:
+			# If we have nothing, return nothing
+			if not dRecord:
+				return None
 
-						# Fetch it from the system
-						dRecord = self._parent.get(lIDs[i])
+			# If we want the records as is
+			if raw:
+				if raw is True:
+					return dRecord
+				else:
+					return {
+						k:v for k,v in dRecord.items() if k in raw
+					}
 
-						# If it doesn't exist
-						if not dRecord:
+			# Return a new Data
+			return Data(self, dRecord)
 
-							# Mark it as missing so we don't overload the
-							#	system. Any future requests will return the
-							#	record as False
-							self._cache.add_missing(lIDs[i])
+		# Else, we are fetching multiple
+		else:
 
-						# Else, we have it
-						else:
+			# If we got anything
+			if mIDs:
 
-							# Store it for next time
-							self._cache.set(lIDs[i], dRecord)
+				# If all we wanted was IDs
+				if raw and \
+					raw is not True and \
+					len(raw) == 1 and \
+					raw[0] == self._key:
 
-					# Else, if it's False, set it to None and move on, we
-					#	know this record does not exist
-					elif lRecords[i] == False:
-						lRecords[i] = None
+						# Return the IDs
+						return [ { self._key: id_ } for id_ in mIDs ]
 
-			# Else, we have no cache
-			else:
+				# If we have a cache
+				if self._cache:
 
-				# Get the full record for each ID
-				lRecords = [
-					self._parent.get(sID) \
-					for sID in lIDs
-				]
+					# Try to get them from the cache
+					lRecords = self._cache.get(mIDs)
 
-		# If we have nothing, return nothing
-		if not lRecords:
-			return []
+					# Go through each record by index
+					for i in range(len(lRecords)):
 
-		# If we want the records as is
-		if raw:
-			if raw is True:
-				return lRecords
-			else:
-				return [
-					{ k:v for k,v in d.items() if k in raw } \
-					for d in lRecords
-				]
+						# If we didn't get the record
+						if lRecords[i] is None:
 
-		# Return a new Data
-		return [m and Data(self, m) or None for m in lRecords]
+							# Fetch it from the system
+							dRecord = self._parent.get(mIDs[i])
+
+							# If it doesn't exist
+							if not dRecord:
+
+								# Mark it as missing so we don't overload the
+								#	system. Any future requests will return the
+								#	record as False
+								self._cache.add_missing(mIDs[i])
+
+							# Else, we have it
+							else:
+
+								# Store it for next time
+								self._cache.set(mIDs[i], dRecord)
+
+						# Else, if it's False, set it to None and move on, we
+						#	know this record does not exist
+						elif lRecords[i] == False:
+							lRecords[i] = None
+
+				# Else, we have no cache
+				else:
+
+					# Get the full record for each ID
+					lRecords = [
+						self._parent.get(sID) \
+						for sID in mIDs
+					]
+
+			# If we have nothing, return nothing
+			if not lRecords:
+				return []
+
+			# If we want the records as is
+			if raw:
+				if raw is True:
+					return lRecords
+				else:
+					return [
+						{ k:v for k,v in d.items() if k in raw } \
+						for d in lRecords
+					]
+
+			# Return a new Data
+			return [m and Data(self, m) or None for m in lRecords]
 
 	def get(self,
 		_id: str | List[str] = undefined,
