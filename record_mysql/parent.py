@@ -428,11 +428,69 @@ class Parent(Base):
 		# Return the row(s) data
 		return dRet
 
+	def insert(self,
+		_id: str,
+		data: dict,
+		ta: Transaction = undefined
+	) -> bool:
+		"""Insert
+
+		Sets the row associated with the given ID. Raises error if the row \
+		already exists
+
+		Raises:
+			RecordDuplicate
+			RecordServerException
+
+		Returns:
+			bool
+		"""
+
+		# Set the local transaction by creating one from the table, or if there
+		#	isn't one, use an empty list, we can pass it up either way
+		try:
+			lTA = self._table.transaction()
+		except AttributeError:
+			lTA = []
+
+		# Create a new record from the data using the passed ID
+		lTA.insert({
+			**{ self._table._struct.key: _id },
+			**without(data, list(self._keys.keys()))
+		})
+
+		# Go through each complex field
+		for f in self._complex:
+
+			# If we have any data
+			if f in data:
+
+				# Call its set method
+				mRet = self._complex[f].insert(
+					_id,		# The same ID we got
+					data[f],	# The values for that specific field
+					lTA			# Our transaction object
+				)
+
+		# If we have a transaction passed in, extend it with ours
+		if ta is not undefined:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful
+			if not lTA.run():
+				return False
+
+		# Return OK
+		return True
+
 	def set(self,
 		_id: str,
 		data: dict,
 		ta: Transaction = undefined
-	) -> dict | list | None:
+	) -> dict | None:
 		"""Set
 
 		Sets the row associated with the given ID and returns the previous row \
@@ -446,7 +504,6 @@ class Parent(Base):
 				statements to
 
 		Raises:
-			RecordDuplicate
 			RecordServerException
 
 		Returns:

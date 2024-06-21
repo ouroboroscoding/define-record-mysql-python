@@ -132,7 +132,7 @@ class Storage(_Storage):
 		lTA = self._parent._table.transaction()
 
 		# Take the incoming data, and pass it to the parent to set
-		mData = self._parent.set(value[self._key], value, lTA)
+		mData = self._parent.insert(value[self._key], value, lTA)
 
 		# If we store revisions
 		if self._parent._table._struct.revisions:
@@ -281,7 +281,7 @@ class Storage(_Storage):
 					raw[0] == self._key:
 
 					# Return the ID
-					return mIDs
+					return { self._key: mIDs }
 
 				# If we have a cache
 				if self._cache:
@@ -478,7 +478,7 @@ class Storage(_Storage):
 					if self._cache and dRecord:
 
 						# Store it in the cache under the ID
-						self._cache.set(lIDs, dRecord)
+						self._cache.set(sID, dRecord)
 
 				# If we want the record as is
 				if raw:

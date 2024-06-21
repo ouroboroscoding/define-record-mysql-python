@@ -730,6 +730,74 @@ class Leveled(Base):
 			# Return all the data
 			return dParents
 
+	def insert(self,
+		_id: str,
+		data: dict,
+		ta: Transaction = undefined
+	) -> bool:
+		"""Insert
+
+		Inserts the rows associated with the given ID
+
+		Arguments:
+			_id (str): The ID of the parent
+			data (dict): A dict representing a structure of data to be set \
+				under the given ID
+			ta (Transaction): Optional, the open transaction to add new sql \
+				statements to
+
+		Returns:
+			bool
+		"""
+
+		# Set the local transaction
+		lTA = self._table.transaction()
+
+		# Flatten the passed in data
+		lData = self._flatten(data)
+
+		# Go through each one of the rows passed in
+		for d in lData:
+
+			# Create a new row with a new ID, the parent, and all the local
+			#	columns that were passed in
+			dRow = {
+				self._table._struct.key: self._table.uuid(),
+				'_parent': _id,
+				**{ k: d[k] for k in self._keys if k in d },
+				**{ k: d[k] for k in self._columns if k in d }
+			}
+
+			# Insert the row
+			lTA.insert(dRow)
+
+			# Go through each complex field
+			for f in self._complex:
+
+				# If we have data for the field
+				if f in d:
+
+					# Set any records
+					self._complex[f].insert(
+						dRow[self._table._struct.key],
+						d[f],
+						lTA
+					)
+
+		# If we have a transaction passed in, extend it with ours
+		if ta is not undefined:
+			ta.extend(lTA)
+
+		# Else, run everything
+		else:
+
+			# If we were not successful
+			if not lTA.run():
+				return False
+
+		# Return OK
+		return True
+
 	def set(self,
 		_id: str,
 		data: dict,
